@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "crypto-agent-system": {
+      "command": "python",
+      "args": [
+        "/ABSOLUTE/PATH/TO/crypto-agent-system/mcp_server.py"
+      ],
+      "env": {
+        "ANTHROPIC_API_KEY": "your-api-key-here"
+      }
+    }
+  }
+}
