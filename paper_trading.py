@@ -1,49 +1,64 @@
 """
 Paper Trading System - Simulated trading with fake money
 """
-import json
 import os
 from datetime import datetime
 from typing import Optional
-from pathlib import Path
-
-DATA_FILE = Path(__file__).parent / "data" / "paper_trades.json"
+from database import get_cursor
 
 
-def _load_data() -> dict:
-    """Load paper trading data from file"""
-    if DATA_FILE.exists():
-        with open(DATA_FILE, "r") as f:
-            return json.load(f)
-    return {
-        "balance": 10000.0,
-        "initial_balance": 10000.0,
-        "positions": [],
-        "history": [],
-        "stats": {
-            "total_trades": 0,
-            "winning_trades": 0,
-            "losing_trades": 0,
-            "total_pnl": 0.0
-        }
-    }
-
-
-def _save_data(data: dict):
-    """Save paper trading data to file"""
-    DATA_FILE.parent.mkdir(parents=True, exist_ok=True)
-    with open(DATA_FILE, "w") as f:
-        json.dump(data, f, indent=2, default=str)
+def _row_to_position(row) -> dict:
+    """Convert a DB row to the dict format used by the API."""
+    d = dict(row)
+    for key in ("opened_at", "closed_at"):
+        if key in d and isinstance(d[key], datetime):
+            d[key] = d[key].isoformat()
+    return d
 
 
 def get_portfolio() -> dict:
     """Get current portfolio status"""
-    return _load_data()
+    with get_cursor() as cur:
+        cur.execute("SELECT * FROM portfolio WHERE id = 1")
+        port = dict(cur.fetchone())
+
+        cur.execute("SELECT * FROM positions ORDER BY id")
+        positions = [_row_to_position(r) for r in cur.fetchall()]
+
+        cur.execute("SELECT * FROM trade_history ORDER BY closed_at")
+        history = [_row_to_position(r) for r in cur.fetchall()]
+
+    return {
+        "balance": port["balance"],
+        "initial_balance": port["initial_balance"],
+        "positions": positions,
+        "history": history,
+        "stats": {
+            "total_trades":   port["total_trades"],
+            "winning_trades": port["winning_trades"],
+            "losing_trades":  port["losing_trades"],
+            "total_pnl":      port["total_pnl"],
+        }
+    }
 
 
 def reset_portfolio(initial_balance: float = 10000.0) -> dict:
     """Reset portfolio to initial state"""
-    data = {
+    with get_cursor() as cur:
+        cur.execute("DELETE FROM trade_history")
+        cur.execute("DELETE FROM positions")
+        cur.execute("""
+            UPDATE portfolio
+            SET balance         = %s,
+                initial_balance = %s,
+                total_trades    = 0,
+                winning_trades  = 0,
+                losing_trades   = 0,
+                total_pnl       = 0.0
+            WHERE id = 1
+        """, (initial_balance, initial_balance))
+
+    return {
         "balance": initial_balance,
         "initial_balance": initial_balance,
         "positions": [],
@@ -55,8 +70,6 @@ def reset_portfolio(initial_balance: float = 10000.0) -> dict:
             "total_pnl": 0.0
         }
     }
-    _save_data(data)
-    return data
 
 
 def open_position(
@@ -71,50 +84,56 @@ def open_position(
     position_size_percent: float = 10.0  # Use 10% of balance per trade
 ) -> dict:
     """Open a new paper trading position"""
-    data = _load_data()
+    with get_cursor() as cur:
+        cur.execute("SELECT balance FROM portfolio WHERE id = 1")
+        balance = cur.fetchone()["balance"]
 
-    # Calculate position size
-    position_value = data["balance"] * (position_size_percent / 100)
-    margin_used = position_value
-    position_size = (position_value * leverage) / entry_price
+        # Calculate position size
+        position_value = balance * (position_size_percent / 100)
+        margin_used    = position_value
+        position_size  = (position_value * leverage) / entry_price
+        opened_at      = datetime.utcnow()
 
-    position = {
-        "id": len(data["history"]) + len(data["positions"]) + 1,
-        "symbol": symbol,
-        "direction": direction,
-        "entry_price": entry_price,
-        "current_price": entry_price,
-        "leverage": leverage,
-        "position_size": position_size,
-        "margin_used": margin_used,
-        "take_profit_price": take_profit_price,
-        "stop_loss_price": stop_loss_price,
-        "confidence": confidence,
-        "reasoning": reasoning,
-        "opened_at": datetime.utcnow().isoformat(),
-        "unrealized_pnl": 0.0,
-        "unrealized_pnl_percent": 0.0
-    }
+        cur.execute("""
+            INSERT INTO positions
+                (symbol, direction, entry_price, current_price, leverage,
+                 position_size, margin_used, take_profit_price, stop_loss_price,
+                 confidence, reasoning, opened_at,
+                 unrealized_pnl, unrealized_pnl_percent)
+            VALUES
+                (%s, %s, %s, %s, %s,
+                 %s, %s, %s, %s,
+                 %s, %s, %s,
+                 0.0, 0.0)
+            RETURNING *
+        """, (
+            symbol, direction, entry_price, entry_price, leverage,
+            position_size, margin_used, take_profit_price, stop_loss_price,
+            confidence, reasoning, opened_at
+        ))
+        position = _row_to_position(cur.fetchone())
 
-    data["balance"] -= margin_used
-    data["positions"].append(position)
-    _save_data(data)
+        cur.execute("""
+            UPDATE portfolio SET balance = balance - %s WHERE id = 1
+        """, (margin_used,))
 
     return position
 
 
 def update_positions(current_prices: dict) -> list:
     """Update all positions with current prices and check for TP/SL"""
-    data = _load_data()
+    with get_cursor() as cur:
+        cur.execute("SELECT * FROM positions")
+        positions = [_row_to_position(r) for r in cur.fetchall()]
+
     closed_positions = []
 
-    for position in data["positions"][:]:  # Copy list to allow modification
+    for position in positions:
         symbol = position["symbol"]
         if symbol not in current_prices:
             continue
 
         current_price = current_prices[symbol].get("price", position["entry_price"])
-        position["current_price"] = current_price
 
         # Calculate PnL
         if position["direction"] == "long":
@@ -123,8 +142,16 @@ def update_positions(current_prices: dict) -> list:
             price_change_percent = ((position["entry_price"] - current_price) / position["entry_price"]) * 100
 
         leveraged_pnl_percent = price_change_percent * position["leverage"]
-        position["unrealized_pnl_percent"] = leveraged_pnl_percent
-        position["unrealized_pnl"] = position["margin_used"] * (leveraged_pnl_percent / 100)
+        unrealized_pnl        = position["margin_used"] * (leveraged_pnl_percent / 100)
+
+        with get_cursor() as cur:
+            cur.execute("""
+                UPDATE positions
+                SET current_price          = %s,
+                    unrealized_pnl         = %s,
+                    unrealized_pnl_percent = %s
+                WHERE id = %s
+            """, (current_price, unrealized_pnl, leveraged_pnl_percent, position["id"]))
 
         # Check take profit / stop loss
         should_close = False
@@ -132,42 +159,31 @@ def update_positions(current_prices: dict) -> list:
 
         if position["direction"] == "long":
             if current_price >= position["take_profit_price"]:
-                should_close = True
-                close_reason = "take_profit"
+                should_close, close_reason = True, "take_profit"
             elif current_price <= position["stop_loss_price"]:
-                should_close = True
-                close_reason = "stop_loss"
+                should_close, close_reason = True, "stop_loss"
         else:  # short
             if current_price <= position["take_profit_price"]:
-                should_close = True
-                close_reason = "take_profit"
+                should_close, close_reason = True, "take_profit"
             elif current_price >= position["stop_loss_price"]:
-                should_close = True
-                close_reason = "stop_loss"
+                should_close, close_reason = True, "stop_loss"
 
         if should_close:
             closed = close_position(position["id"], current_price, close_reason)
             if closed:
                 closed_positions.append(closed)
-                # Reload data after close
-                data = _load_data()
 
-    _save_data(data)
     return closed_positions
 
 
 def close_position(position_id: int, close_price: float, reason: str = "manual") -> Optional[dict]:
     """Close a position and record in history"""
-    data = _load_data()
-
-    position = None
-    for p in data["positions"]:
-        if p["id"] == position_id:
-            position = p
-            break
-
-    if not position:
-        return None
+    with get_cursor() as cur:
+        cur.execute("SELECT * FROM positions WHERE id = %s", (position_id,))
+        row = cur.fetchone()
+        if not row:
+            return None
+        position = _row_to_position(row)
 
     # Calculate final PnL
     if position["direction"] == "long":
@@ -176,59 +192,91 @@ def close_position(position_id: int, close_price: float, reason: str = "manual")
         price_change_percent = ((position["entry_price"] - close_price) / position["entry_price"]) * 100
 
     leveraged_pnl_percent = price_change_percent * position["leverage"]
-    realized_pnl = position["margin_used"] * (leveraged_pnl_percent / 100)
+    realized_pnl          = position["margin_used"] * (leveraged_pnl_percent / 100)
+    closed_at             = datetime.utcnow()
+    was_profitable        = realized_pnl > 0
+    hit_target            = reason == "take_profit" and realized_pnl > 0
 
-    # Create history record
-    history_record = {
-        **position,
-        "close_price": close_price,
-        "close_reason": reason,
-        "closed_at": datetime.utcnow().isoformat(),
-        "realized_pnl": realized_pnl,
-        "realized_pnl_percent": leveraged_pnl_percent,
-        "was_profitable": realized_pnl > 0,
-        "hit_target": reason == "take_profit" and realized_pnl > 0
-    }
+    with get_cursor() as cur:
+        # Insert into history, delete from positions, update balance — all one transaction
+        cur.execute("""
+            INSERT INTO trade_history
+                (id, symbol, direction, entry_price, close_price, current_price,
+                 leverage, position_size, margin_used,
+                 take_profit_price, stop_loss_price, confidence, reasoning,
+                 opened_at, closed_at,
+                 unrealized_pnl, unrealized_pnl_percent,
+                 realized_pnl, realized_pnl_percent,
+                 close_reason, was_profitable, hit_target)
+            VALUES
+                (%s, %s, %s, %s, %s, %s,
+                 %s, %s, %s,
+                 %s, %s, %s, %s,
+                 %s, %s,
+                 %s, %s,
+                 %s, %s,
+                 %s, %s, %s)
+            RETURNING *
+        """, (
+            position["id"], position["symbol"], position["direction"],
+            position["entry_price"], close_price, close_price,
+            position["leverage"], position["position_size"], position["margin_used"],
+            position["take_profit_price"], position["stop_loss_price"],
+            position["confidence"], position["reasoning"],
+            position["opened_at"], closed_at,
+            position["unrealized_pnl"], position["unrealized_pnl_percent"],
+            realized_pnl, leveraged_pnl_percent,
+            reason, was_profitable, hit_target
+        ))
+        history_record = _row_to_position(cur.fetchone())
 
-    # Update portfolio
-    data["balance"] += position["margin_used"] + realized_pnl
-    data["positions"].remove(position)
-    data["history"].append(history_record)
+        cur.execute("DELETE FROM positions WHERE id = %s", (position_id,))
 
-    # Update stats
-    data["stats"]["total_trades"] += 1
-    data["stats"]["total_pnl"] += realized_pnl
-    if realized_pnl > 0:
-        data["stats"]["winning_trades"] += 1
-    else:
-        data["stats"]["losing_trades"] += 1
+        cur.execute("""
+            UPDATE portfolio
+            SET balance        = balance + %s,
+                total_trades   = total_trades + 1,
+                total_pnl      = total_pnl + %s,
+                winning_trades = winning_trades + CASE WHEN %s > 0 THEN 1 ELSE 0 END,
+                losing_trades  = losing_trades  + CASE WHEN %s <= 0 THEN 1 ELSE 0 END
+            WHERE id = 1
+        """, (
+            position["margin_used"] + realized_pnl,
+            realized_pnl,
+            realized_pnl,
+            realized_pnl
+        ))
 
-    _save_data(data)
     return history_record
 
 
 def get_performance_stats() -> dict:
     """Get overall performance statistics"""
-    data = _load_data()
-    stats = data["stats"]
+    with get_cursor() as cur:
+        cur.execute("SELECT * FROM portfolio WHERE id = 1")
+        port = dict(cur.fetchone())
+        cur.execute("SELECT COUNT(*) AS cnt FROM positions")
+        open_count = cur.fetchone()["cnt"]
+        cur.execute("SELECT COUNT(*) AS cnt FROM trade_history")
+        history_count = cur.fetchone()["cnt"]
 
-    win_rate = 0
-    if stats["total_trades"] > 0:
-        win_rate = (stats["winning_trades"] / stats["total_trades"]) * 100
+    win_rate = 0.0
+    if port["total_trades"] > 0:
+        win_rate = (port["winning_trades"] / port["total_trades"]) * 100
 
-    total_return = ((data["balance"] - data["initial_balance"]) / data["initial_balance"]) * 100
+    total_return = ((port["balance"] - port["initial_balance"]) / port["initial_balance"]) * 100
 
     return {
-        "current_balance": data["balance"],
-        "initial_balance": data["initial_balance"],
+        "current_balance":      port["balance"],
+        "initial_balance":      port["initial_balance"],
         "total_return_percent": total_return,
-        "total_pnl": stats["total_pnl"],
-        "total_trades": stats["total_trades"],
-        "winning_trades": stats["winning_trades"],
-        "losing_trades": stats["losing_trades"],
-        "win_rate": win_rate,
-        "open_positions": len(data["positions"]),
-        "history_count": len(data["history"])
+        "total_pnl":            port["total_pnl"],
+        "total_trades":         port["total_trades"],
+        "winning_trades":       port["winning_trades"],
+        "losing_trades":        port["losing_trades"],
+        "win_rate":             win_rate,
+        "open_positions":       open_count,
+        "history_count":        history_count,
     }
 
 
@@ -245,10 +293,10 @@ def auto_execute_recommendations(recommendations: dict, current_prices: dict) ->
             continue
 
         # Check if we already have a position for this symbol
-        data = _load_data()
-        existing = [p for p in data["positions"] if p["symbol"] == symbol]
-        if existing:
-            continue  # Skip if already have position
+        with get_cursor() as cur:
+            cur.execute("SELECT id FROM positions WHERE symbol = %s LIMIT 1", (symbol,))
+            if cur.fetchone():
+                continue
 
         current_price = current_prices[symbol].get("price")
         if not current_price:

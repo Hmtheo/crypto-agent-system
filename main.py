@@ -17,8 +17,16 @@ from agents.monitor import run_monitor, get_prices, get_price_history
 from agents.analysis import analyze_market
 from agents.advisory import get_recommendations
 import paper_trading
+from database import init_db
 
 app = FastAPI(title="Crypto Agent System", version="1.0.0")
+
+
+@app.on_event("startup")
+async def startup_event():
+    """Initialize database tables on startup"""
+    init_db()
+
 
 # Serve static files
 app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -202,4 +210,5 @@ async def execute_recommendations():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    port = int(os.environ.get("PORT", 8000))
+    uvicorn.run(app, host="0.0.0.0", port=port)
