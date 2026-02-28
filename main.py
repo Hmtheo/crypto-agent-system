@@ -13,7 +13,7 @@ from typing import Optional
 load_dotenv()
 
 # Import agents and trading system
-from agents.monitor import run_monitor, get_prices, get_price_history
+from agents.monitor import run_monitor, get_prices, get_price_history, get_crypto_news
 from agents.analysis import analyze_market
 from agents.advisory import get_recommendations
 import paper_trading
@@ -70,6 +70,16 @@ async def prices():
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.get("/api/news")
+async def news():
+    """Get latest crypto news headlines"""
+    try:
+        articles = await get_crypto_news()
+        return {"news": articles}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/api/history/{coin_id}")
 async def price_history(coin_id: str, days: int = 7):
     """Get price history for a coin"""
@@ -107,16 +117,15 @@ async def analyze():
 async def recommend():
     """Run all agents and get trade recommendations"""
     try:
-        # Get monitor data
         monitor_data = await run_monitor()
-        # Analyze it
         analysis = await analyze_market(monitor_data)
-        # Get recommendations
-        recommendations = await get_recommendations(monitor_data, analysis)
+        performance_ctx = paper_trading.get_performance_context()
+        recommendations = await get_recommendations(monitor_data, analysis, performance_ctx)
         return {
             "monitor": monitor_data,
             "analysis": analysis,
-            "recommendations": recommendations
+            "recommendations": recommendations,
+            "performance_context": performance_ctx,
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -174,12 +183,10 @@ async def close_position(request: ClosePositionRequest):
 async def execute_recommendations():
     """Run all agents, get recommendations, and auto-execute trades"""
     try:
-        # Get monitor data
         monitor_data = await run_monitor()
-        # Analyze it
         analysis = await analyze_market(monitor_data)
-        # Get recommendations
-        recommendations = await get_recommendations(monitor_data, analysis)
+        performance_ctx = paper_trading.get_performance_context()
+        recommendations = await get_recommendations(monitor_data, analysis, performance_ctx)
         # Auto-execute
         current_prices = monitor_data.get("prices", {})
         opened_positions = paper_trading.auto_execute_recommendations(

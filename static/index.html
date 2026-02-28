@@ -14,6 +14,21 @@
             <p class="subtitle">AI-Powered Paper Trading for BTC, ETH, SOL</p>
         </header>
 
+        <!-- Headlines Ticker -->
+        <section class="headlines-section">
+            <div class="headlines-header">
+                <span class="headlines-label">LIVE NEWS</span>
+                <button id="refreshNews" class="headlines-refresh" title="Refresh news">↻</button>
+            </div>
+            <div id="headlinesTicker" class="headlines-ticker">
+                <div id="headlinesTrack" class="headlines-track">
+                    <span class="headlines-loading">Loading latest crypto news...</span>
+                </div>
+            </div>
+            <div id="headlinesCards" class="headlines-cards" style="display:none;"></div>
+            <button id="toggleHeadlines" class="headlines-toggle">Show articles ▾</button>
+        </section>
+
         <!-- Control Panel -->
         <section class="control-panel">
             <button id="runAgents" class="btn primary">▶️ Run All Agents</button>

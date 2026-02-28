@@ -44,6 +44,54 @@ async function fetchAPI(endpoint, options = {}) {
     }
 }
 
+// Headlines / news
+let headlinesExpanded = false;
+
+async function loadHeadlines() {
+    try {
+        const result = await fetchAPI('/news');
+        updateHeadlines(result.news || []);
+    } catch (error) {
+        console.error('Failed to load headlines:', error);
+    }
+}
+
+function updateHeadlines(articles) {
+    const track = document.getElementById('headlinesTrack');
+    const cards = document.getElementById('headlinesCards');
+    if (!articles || articles.length === 0) {
+        track.innerHTML = '<span class="headlines-loading">No news available</span>';
+        return;
+    }
+
+    // Ticker — duplicate items for seamless loop
+    const tickerItems = articles.map(a => `
+        <span class="ticker-item">
+            <a href="${a.url || '#'}" target="_blank" rel="noopener">${a.title}</a>
+            <span class="ticker-source">${a.source}</span>
+            <span class="ticker-time">${a.published_at}</span>
+        </span>
+    `).join('');
+    track.innerHTML = tickerItems + tickerItems;  // duplicate for seamless wrap
+
+    // Cards for expanded view
+    cards.innerHTML = articles.map(a => `
+        <div class="headline-card">
+            <a href="${a.url || '#'}" target="_blank" rel="noopener">${a.title}</a>
+            <div class="headline-card-meta">${a.source} · ${a.published_at}</div>
+            ${a.body_snippet ? `<div class="headline-card-snippet">${a.body_snippet}</div>` : ''}
+        </div>
+    `).join('');
+}
+
+function toggleHeadlines() {
+    headlinesExpanded = !headlinesExpanded;
+    const cards = document.getElementById('headlinesCards');
+    const btn = document.getElementById('toggleHeadlines');
+    cards.style.display = headlinesExpanded ? 'grid' : 'none';
+    btn.textContent = headlinesExpanded ? 'Hide articles ▴' : 'Show articles ▾';
+}
+
 // Update price display
 function updatePrices(prices) {
     if (!prices) return;
@@ -345,14 +393,18 @@ document.addEventListener('DOMContentLoaded', () => {
     // Load initial data
     loadPrices();
     loadPortfolio();
+    loadHeadlines();
 
     // Set up event listeners
     document.getElementById('runAgents').addEventListener('click', runAgents);
     document.getElementById('updatePositions').addEventListener('click', updatePositions);
     document.getElementById('resetPortfolio').addEventListener('click', resetPortfolio);
+    document.getElementById('refreshNews').addEventListener('click', loadHeadlines);
+    document.getElementById('toggleHeadlines').addEventListener('click', toggleHeadlines);
 
-    // Auto-refresh prices every 30 seconds
+    // Auto-refresh prices every 30 seconds, news every 5 minutes
     setInterval(loadPrices, 30000);
+    setInterval(loadHeadlines, 300000);
 
     log('System initialized', 'success');
 });

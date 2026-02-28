@@ -232,6 +232,99 @@ def get_performance_stats() -> dict:
     }
 
 
+def get_performance_context(limit: int = 10) -> dict:
+    """
+    Summarise recent closed-trade outcomes for the advisory agent feedback loop.
+    Returns a structured dict the advisory prompt can reason about.
+    """
+    data = _load_data()
+    history = data.get("history", [])
+    stats = data.get("stats", {})
+
+    if not history:
+        return {"has_history": False, "total_closed_trades": 0}
+
+    total_trades = stats.get("total_trades", 0)
+    winning_trades = stats.get("winning_trades", 0)
+    overall_win_rate = (winning_trades / total_trades * 100) if total_trades > 0 else None
+
+    # Build per-symbol stats from all history
+    by_symbol: dict = {}
+    for trade in history:
+        sym = trade["symbol"]
+        if sym not in by_symbol:
+            by_symbol[sym] = {"wins": 0, "losses": 0, "all_trades": []}
+        if trade.get("was_profitable"):
+            by_symbol[sym]["wins"] += 1
+        else:
+            by_symbol[sym]["losses"] += 1
+        by_symbol[sym]["all_trades"].append(trade)
+
+    per_symbol = {}
+    for sym, sym_data in by_symbol.items():
+        total = sym_data["wins"] + sym_data["losses"]
+        win_rate = (sym_data["wins"] / total * 100) if total > 0 else None
+        recent_3 = sym_data["all_trades"][-3:]
+        per_symbol[sym] = {
+            "total_trades": total,
+            "win_rate": win_rate,
+            "recent_trades": [
+                {
+                    "direction": t["direction"],
+                    "confidence": t.get("confidence", 50),
+                    "was_profitable": t["was_profitable"],
+                    "close_reason": t["close_reason"],
+                    "realized_pnl_percent": round(t.get("realized_pnl_percent", 0), 1),
+                }
+                for t in recent_3
+            ],
+        }
+
+    # Detect repeating patterns (e.g. consecutive SL hits per symbol+direction)
+    patterns = []
+    for sym, sym_data in by_symbol.items():
+        for direction in ["long", "short"]:
+            dir_trades = [t for t in sym_data["all_trades"][-5:] if t["direction"] == direction]
+            if len(dir_trades) >= 2:
+                sl_count = sum(1 for t in dir_trades[-3:] if t["close_reason"] == "stop_loss")
+                tp_count = sum(1 for t in dir_trades[-3:] if t["close_reason"] == "take_profit")
+                window = min(3, len(dir_trades))
+                if sl_count >= 2:
+                    patterns.append(
+                        f"{sym} {direction}s hitting stop loss {sl_count}/{window} recent trades"
+                    )
+                elif tp_count >= 2:
+                    patterns.append(
+                        f"{sym} {direction}s hitting take profit {tp_count}/{window} recent trades — momentum strong"
+                    )
+
+    recent_5 = [
+        {
+            "symbol": t["symbol"],
+            "direction": t["direction"],
+            "confidence": t.get("confidence", 50),
+            "was_profitable": t["was_profitable"],
+            "close_reason": t["close_reason"],
+            "realized_pnl_percent": round(t.get("realized_pnl_percent", 0), 1),
+        }
+        for t in history[-5:]
+    ]
+
+    return {
+        "has_history": True,
+        "total_closed_trades": total_trades,
+        "overall_win_rate": overall_win_rate,
+        "overall_stats": {
+            "total_pnl": stats.get("total_pnl", 0),
+            "winning_trades": winning_trades,
+            "losing_trades": stats.get("losing_trades", 0),
+        },
+        "per_symbol": per_symbol,
+        "recent_trades": recent_5,
+        "patterns": patterns,
+    }
+
+
 def auto_execute_recommendations(recommendations: dict, current_prices: dict) -> list:
     """Automatically open positions based on advisory recommendations"""
     opened = []
