@@ -1,6 +1,95 @@
 // Crypto Agent Trading System - Frontend JavaScript
 
+// ---------------------------------------------------------------------------
+// Auth state
+// ---------------------------------------------------------------------------
+
+let authToken = null;
+
+function getToken() {
+    return authToken || localStorage.getItem('auth_token');
+}
+
+function setToken(token) {
+    authToken = token;
+    localStorage.setItem('auth_token', token);
+}
+
+function clearToken() {
+    authToken = null;
+    localStorage.removeItem('auth_token');
+}
+
+function showAuthOverlay() {
+    document.getElementById('authOverlay').classList.add('visible');
+    document.getElementById('userInfo').classList.remove('visible');
+}
+
+function hideAuthOverlay() {
+    document.getElementById('authOverlay').classList.remove('visible');
+}
+
+function showUserInfo(user) {
+    const userInfo = document.getElementById('userInfo');
+    userInfo.classList.add('visible');
+    document.getElementById('userName').textContent = user.name || user.email;
+    const avatar = document.getElementById('userAvatar');
+    if (user.picture) {
+        avatar.src = user.picture;
+        avatar.style.display = '';
+    } else {
+        avatar.style.display = 'none';
+    }
+}
+
+async function initAuth() {
+    // Check for token in URL fragment (returned after OAuth callback)
+    const hash = window.location.hash;
+    if (hash && hash.startsWith('#token=')) {
+        const token = hash.slice(7);
+        setToken(token);
+        // Clean the URL
+        history.replaceState(null, '', '/');
+    }
+
+    const token = getToken();
+    if (!token) {
+        showAuthOverlay();
+        return false;
+    }
+
+    // Verify token by fetching current user
+    try {
+        const res = await fetch('/auth/me', {
+            headers: { Authorization: `Bearer ${token}` }
+        });
+        if (!res.ok) {
+            clearToken();
+            showAuthOverlay();
+            return false;
+        }
+        const user = await res.json();
+        hideAuthOverlay();
+        showUserInfo(user);
+        return true;
+    } catch {
+        clearToken();
+        showAuthOverlay();
+        return false;
+    }
+}
+
+function logout() {
+    clearToken();
+    showAuthOverlay();
+    document.getElementById('userInfo').classList.remove('visible');
+    log('Signed out', 'info');
+}
+
+// ---------------------------------------------------------------------------
 // Utility functions
+// ---------------------------------------------------------------------------
+
 function formatCurrency(amount) {
     return new Intl.NumberFormat('en-US', {
         style: 'currency',
@@ -30,12 +119,27 @@ function log(message, type = 'info') {
     logContent.insertBefore(entry, logContent.firstChild);
 }
 
-// API calls
+// ---------------------------------------------------------------------------
+// API calls (auth-aware)
+// ---------------------------------------------------------------------------
+
 async function fetchAPI(endpoint, options = {}) {
+    const token = getToken();
+    const headers = {
+        ...(options.headers || {}),
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    };
+
     try {
-        const response = await fetch(`/api${endpoint}`, options);
+        const response = await fetch(`/api${endpoint}`, { ...options, headers });
+        if (response.status === 401) {
+            clearToken();
+            showAuthOverlay();
+            throw new Error('Session expired. Please sign in again.');
+        }
         if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
+            const err = await response.json().catch(() => ({ detail: response.statusText }));
+            throw new Error(err.detail || `HTTP ${response.status}`);
         }
         return await response.json();
     } catch (error) {
@@ -44,7 +148,10 @@ async function fetchAPI(endpoint, options = {}) {
     }
 }
 
-// Update price display
+// ---------------------------------------------------------------------------
+// Display functions
+// ---------------------------------------------------------------------------
+
 function updatePrices(prices) {
     if (!prices) return;
 
@@ -68,7 +175,6 @@ function updatePrices(prices) {
     }
 }
 
-// Update portfolio display
 function updatePortfolio(portfolio, stats) {
     if (stats) {
         document.getElementById('balance').textContent = formatCurrency(stats.current_balance);
@@ -156,7 +262,6 @@ function updatePortfolio(portfolio, stats) {
     }
 }
 
-// Update analysis display
 function updateAnalysis(analysis) {
     if (!analysis) return;
 
@@ -175,7 +280,6 @@ function updateAnalysis(analysis) {
     riskEl.className = `risk ${analysis.risk_level}`;
 }
 
-// Update recommendations display
 function updateRecommendations(recommendations) {
     if (!recommendations || !recommendations.recommendations) return;
 
@@ -203,7 +307,6 @@ function updateRecommendations(recommendations) {
         </div>
     `).join('');
 
-    // Show overall advice
     if (recommendations.portfolio_advice) {
         content.innerHTML += `
             <div class="recommendation-card" style="grid-column: 1 / -1; border-left-color: #00d4ff;">
@@ -219,7 +322,10 @@ function updateRecommendations(recommendations) {
     }
 }
 
-// Run all agents
+// ---------------------------------------------------------------------------
+// Actions
+// ---------------------------------------------------------------------------
+
 async function runAgents() {
     const btn = document.getElementById('runAgents');
     btn.disabled = true;
@@ -233,13 +339,11 @@ async function runAgents() {
         updateAnalysis(result.analysis);
         updateRecommendations(result.recommendations);
 
-        // Fetch and update portfolio
         const stats = await fetchAPI('/portfolio/stats');
         updatePortfolio(result.portfolio, stats);
 
         document.getElementById('lastUpdate').textContent = `Last updated: ${new Date().toLocaleTimeString()}`;
 
-        // Log results
         log('Monitor agent completed - prices fetched', 'success');
         log('Analysis agent completed - market analyzed', 'success');
         log('Advisory agent completed - recommendations generated', 'success');
@@ -265,7 +369,6 @@ async function runAgents() {
     }
 }
 
-// Update positions
 async function updatePositions() {
     const btn = document.getElementById('updatePositions');
     btn.disabled = true;
@@ -274,7 +377,6 @@ async function updatePositions() {
     try {
         const result = await fetchAPI('/portfolio/update', { method: 'POST' });
         const stats = await fetchAPI('/portfolio/stats');
-
         updatePortfolio(result.portfolio, stats);
 
         if (result.closed_positions?.length > 0) {
@@ -293,12 +395,10 @@ async function updatePositions() {
     }
 }
 
-// Reset portfolio
 async function resetPortfolio() {
     if (!confirm('Are you sure you want to reset your portfolio? All positions and history will be lost.')) {
         return;
     }
-
     log('Resetting portfolio...', 'info');
 
     try {
@@ -319,7 +419,6 @@ async function resetPortfolio() {
     }
 }
 
-// Load initial prices
 async function loadPrices() {
     try {
         const prices = await fetchAPI('/prices');
@@ -329,7 +428,6 @@ async function loadPrices() {
     }
 }
 
-// Load portfolio
 async function loadPortfolio() {
     try {
         const portfolio = await fetchAPI('/portfolio');
@@ -340,16 +438,23 @@ async function loadPortfolio() {
     }
 }
 
-// Initialize
-document.addEventListener('DOMContentLoaded', () => {
+// ---------------------------------------------------------------------------
+// Init
+// ---------------------------------------------------------------------------
+
+document.addEventListener('DOMContentLoaded', async () => {
+    const authed = await initAuth();
+    if (!authed) return;
+
     // Load initial data
     loadPrices();
     loadPortfolio();
 
-    // Set up event listeners
+    // Event listeners
     document.getElementById('runAgents').addEventListener('click', runAgents);
     document.getElementById('updatePositions').addEventListener('click', updatePositions);
     document.getElementById('resetPortfolio').addEventListener('click', resetPortfolio);
+    document.getElementById('logoutBtn').addEventListener('click', logout);
 
     // Auto-refresh prices every 30 seconds
     setInterval(loadPrices, 30000);
