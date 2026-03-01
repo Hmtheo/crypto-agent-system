@@ -35,6 +35,164 @@ header h1 {
     font-size: 1.1rem;
 }
 
+/* Headlines Section */
+.headlines-section {
+    background: rgba(0, 0, 0, 0.35);
+    border: 1px solid rgba(0, 212, 255, 0.2);
+    border-radius: 10px;
+    padding: 10px 16px 12px;
+    margin-bottom: 22px;
+    overflow: hidden;
+}
+
+.headlines-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 8px;
+}
+
+.headlines-label {
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    color: #00d4ff;
+    background: rgba(0, 212, 255, 0.12);
+    padding: 2px 8px;
+    border-radius: 4px;
+    border: 1px solid rgba(0, 212, 255, 0.3);
+}
+
+.headlines-refresh {
+    background: none;
+    border: none;
+    color: #666;
+    font-size: 1rem;
+    cursor: pointer;
+    padding: 0 4px;
+    transition: color 0.2s;
+}
+
+.headlines-refresh:hover {
+    color: #00d4ff;
+}
+
+.headlines-ticker {
+    overflow: hidden;
+    white-space: nowrap;
+    position: relative;
+}
+
+.headlines-track {
+    display: inline-block;
+    white-space: nowrap;
+    animation: ticker-scroll 60s linear infinite;
+}
+
+.headlines-ticker:hover .headlines-track {
+    animation-play-state: paused;
+}
+
+@keyframes ticker-scroll {
+    0%   { transform: translateX(0); }
+    100% { transform: translateX(-50%); }
+}
+
+.ticker-item {
+    display: inline-block;
+    padding: 0 40px;
+    font-size: 0.85rem;
+    color: #ccc;
+}
+
+.ticker-item a {
+    color: #ddd;
+    text-decoration: none;
+    transition: color 0.2s;
+}
+
+.ticker-item a:hover {
+    color: #00d4ff;
+}
+
+.ticker-item .ticker-source {
+    color: #555;
+    font-size: 0.75rem;
+    margin-left: 6px;
+}
+
+.ticker-item .ticker-time {
+    color: #444;
+    font-size: 0.72rem;
+    margin-left: 4px;
+}
+
+.headlines-loading {
+    font-size: 0.85rem;
+    color: #555;
+    padding: 2px 8px;
+}
+
+.headlines-toggle {
+    background: none;
+    border: none;
+    color: #555;
+    font-size: 0.78rem;
+    cursor: pointer;
+    margin-top: 8px;
+    padding: 0;
+    transition: color 0.2s;
+}
+
+.headlines-toggle:hover {
+    color: #00d4ff;
+}
+
+.headlines-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 10px;
+    margin-top: 12px;
+}
+
+.headline-card {
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.07);
+    border-radius: 8px;
+    padding: 12px 14px;
+    transition: border-color 0.2s;
+}
+
+.headline-card:hover {
+    border-color: rgba(0, 212, 255, 0.3);
+}
+
+.headline-card a {
+    color: #ddd;
+    text-decoration: none;
+    font-size: 0.85rem;
+    font-weight: 500;
+    line-height: 1.4;
+    display: block;
+    margin-bottom: 6px;
+}
+
+.headline-card a:hover {
+    color: #00d4ff;
+}
+
+.headline-card-meta {
+    font-size: 0.75rem;
+    color: #555;
+}
+
+.headline-card-snippet {
+    font-size: 0.78rem;
+    color: #666;
+    margin-top: 5px;
+    line-height: 1.4;
+}
+
 /* Control Panel */
 .control-panel {
     display: flex;
