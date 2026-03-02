@@ -86,7 +86,7 @@ header h1 {
 .headlines-track {
     display: inline-block;
     white-space: nowrap;
-    animation: ticker-scroll 60s linear infinite;
+    animation: ticker-scroll 90s linear infinite;
 }
 
 .headlines-ticker:hover .headlines-track {
