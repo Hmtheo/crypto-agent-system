@@ -1,7 +1,7 @@
-fastapi==0.109.0
-uvicorn==0.27.0
-httpx==0.26.0
-anthropic==0.18.1
-python-dotenv==1.0.0
-pydantic==2.5.3
-psycopg2-binary==2.9.9
+fastapi>=0.115.0
+uvicorn>=0.34.0
+httpx>=0.28.0
+anthropic>=0.49.0
+python-dotenv>=1.0.1
+pydantic>=2.10.0
+psycopg2-binary>=2.9.9
