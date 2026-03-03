@@ -1,10 +1,9 @@
 """
 Paper Trading System - Simulated trading with fake money
 """
-import os
 from datetime import datetime
 from typing import Optional
-from database import get_cursor
+from database import get_cursor, get_user_portfolio_id
 
 
 def _row_to_position(row) -> dict:
@@ -16,16 +15,18 @@ def _row_to_position(row) -> dict:
     return d
 
 
-def get_portfolio() -> dict:
-    """Get current portfolio status"""
+def get_portfolio(user_id: int) -> dict:
+    """Get current portfolio status for a user."""
+    portfolio_id = get_user_portfolio_id(user_id)
+
     with get_cursor() as cur:
-        cur.execute("SELECT * FROM portfolio WHERE id = 1")
+        cur.execute("SELECT * FROM portfolio WHERE id = %s", (portfolio_id,))
         port = dict(cur.fetchone())
 
-        cur.execute("SELECT * FROM positions ORDER BY id")
+        cur.execute("SELECT * FROM positions WHERE user_id = %s ORDER BY id", (user_id,))
         positions = [_row_to_position(r) for r in cur.fetchall()]
 
-        cur.execute("SELECT * FROM trade_history ORDER BY closed_at")
+        cur.execute("SELECT * FROM trade_history WHERE user_id = %s ORDER BY closed_at", (user_id,))
         history = [_row_to_position(r) for r in cur.fetchall()]
 
     return {
@@ -42,11 +43,13 @@ def get_portfolio() -> dict:
     }
 
 
-def reset_portfolio(initial_balance: float = 10000.0) -> dict:
-    """Reset portfolio to initial state"""
+def reset_portfolio(user_id: int, initial_balance: float = 10000.0) -> dict:
+    """Reset a user's portfolio to initial state."""
+    portfolio_id = get_user_portfolio_id(user_id)
+
     with get_cursor() as cur:
-        cur.execute("DELETE FROM trade_history")
-        cur.execute("DELETE FROM positions")
+        cur.execute("DELETE FROM trade_history WHERE user_id = %s", (user_id,))
+        cur.execute("DELETE FROM positions WHERE user_id = %s", (user_id,))
         cur.execute("""
             UPDATE portfolio
             SET balance         = %s,
@@ -55,8 +58,8 @@ def reset_portfolio(initial_balance: float = 10000.0) -> dict:
                 winning_trades  = 0,
                 losing_trades   = 0,
                 total_pnl       = 0.0
-            WHERE id = 1
-        """, (initial_balance, initial_balance))
+            WHERE id = %s
+        """, (initial_balance, initial_balance, portfolio_id))
 
     return {
         "balance": initial_balance,
@@ -73,6 +76,7 @@ def reset_portfolio(initial_balance: float = 10000.0) -> dict:
 
 
 def open_position(
+    user_id: int,
     symbol: str,
     direction: str,  # "long" or "short"
     entry_price: float,
@@ -83,9 +87,11 @@ def open_position(
     reasoning: str,
     position_size_percent: float = 10.0  # Use 10% of balance per trade
 ) -> dict:
-    """Open a new paper trading position"""
+    """Open a new paper trading position for a user."""
+    portfolio_id = get_user_portfolio_id(user_id)
+
     with get_cursor() as cur:
-        cur.execute("SELECT balance FROM portfolio WHERE id = 1")
+        cur.execute("SELECT balance FROM portfolio WHERE id = %s", (portfolio_id,))
         balance = cur.fetchone()["balance"]
 
         # Calculate position size
@@ -96,34 +102,34 @@ def open_position(
 
         cur.execute("""
             INSERT INTO positions
-                (symbol, direction, entry_price, current_price, leverage,
+                (user_id, symbol, direction, entry_price, current_price, leverage,
                  position_size, margin_used, take_profit_price, stop_loss_price,
                  confidence, reasoning, opened_at,
                  unrealized_pnl, unrealized_pnl_percent)
             VALUES
-                (%s, %s, %s, %s, %s,
+                (%s, %s, %s, %s, %s, %s,
                  %s, %s, %s, %s,
                  %s, %s, %s,
                  0.0, 0.0)
             RETURNING *
         """, (
-            symbol, direction, entry_price, entry_price, leverage,
+            user_id, symbol, direction, entry_price, entry_price, leverage,
             position_size, margin_used, take_profit_price, stop_loss_price,
             confidence, reasoning, opened_at
         ))
         position = _row_to_position(cur.fetchone())
 
         cur.execute("""
-            UPDATE portfolio SET balance = balance - %s WHERE id = 1
-        """, (margin_used,))
+            UPDATE portfolio SET balance = balance - %s WHERE id = %s
+        """, (margin_used, portfolio_id))
 
     return position
 
 
-def update_positions(current_prices: dict) -> list:
-    """Update all positions with current prices and check for TP/SL"""
+def update_positions(user_id: int, current_prices: dict) -> list:
+    """Update all positions for a user with current prices and check for TP/SL."""
     with get_cursor() as cur:
-        cur.execute("SELECT * FROM positions")
+        cur.execute("SELECT * FROM positions WHERE user_id = %s", (user_id,))
         positions = [_row_to_position(r) for r in cur.fetchall()]
 
     closed_positions = []
@@ -150,8 +156,8 @@ def update_positions(current_prices: dict) -> list:
                 SET current_price          = %s,
                     unrealized_pnl         = %s,
                     unrealized_pnl_percent = %s
-                WHERE id = %s
-            """, (current_price, unrealized_pnl, leveraged_pnl_percent, position["id"]))
+                WHERE id = %s AND user_id = %s
+            """, (current_price, unrealized_pnl, leveraged_pnl_percent, position["id"], user_id))
 
         # Check take profit / stop loss
         should_close = False
@@ -169,17 +175,19 @@ def update_positions(current_prices: dict) -> list:
                 should_close, close_reason = True, "stop_loss"
 
         if should_close:
-            closed = close_position(position["id"], current_price, close_reason)
+            closed = close_position(user_id, position["id"], current_price, close_reason)
             if closed:
                 closed_positions.append(closed)
 
     return closed_positions
 
 
-def close_position(position_id: int, close_price: float, reason: str = "manual") -> Optional[dict]:
-    """Close a position and record in history"""
+def close_position(user_id: int, position_id: int, close_price: float, reason: str = "manual") -> Optional[dict]:
+    """Close a position for a user and record in history."""
+    portfolio_id = get_user_portfolio_id(user_id)
+
     with get_cursor() as cur:
-        cur.execute("SELECT * FROM positions WHERE id = %s", (position_id,))
+        cur.execute("SELECT * FROM positions WHERE id = %s AND user_id = %s", (position_id, user_id))
         row = cur.fetchone()
         if not row:
             return None
@@ -201,7 +209,7 @@ def close_position(position_id: int, close_price: float, reason: str = "manual")
         # Insert into history, delete from positions, update balance — all one transaction
         cur.execute("""
             INSERT INTO trade_history
-                (id, symbol, direction, entry_price, close_price, current_price,
+                (id, user_id, symbol, direction, entry_price, close_price, current_price,
                  leverage, position_size, margin_used,
                  take_profit_price, stop_loss_price, confidence, reasoning,
                  opened_at, closed_at,
@@ -209,7 +217,7 @@ def close_position(position_id: int, close_price: float, reason: str = "manual")
                  realized_pnl, realized_pnl_percent,
                  close_reason, was_profitable, hit_target)
             VALUES
-                (%s, %s, %s, %s, %s, %s,
+                (%s, %s, %s, %s, %s, %s, %s,
                  %s, %s, %s,
                  %s, %s, %s, %s,
                  %s, %s,
@@ -218,7 +226,7 @@ def close_position(position_id: int, close_price: float, reason: str = "manual")
                  %s, %s, %s)
             RETURNING *
         """, (
-            position["id"], position["symbol"], position["direction"],
+            position["id"], user_id, position["symbol"], position["direction"],
             position["entry_price"], close_price, close_price,
             position["leverage"], position["position_size"], position["margin_used"],
             position["take_profit_price"], position["stop_loss_price"],
@@ -230,7 +238,7 @@ def close_position(position_id: int, close_price: float, reason: str = "manual")
         ))
         history_record = _row_to_position(cur.fetchone())
 
-        cur.execute("DELETE FROM positions WHERE id = %s", (position_id,))
+        cur.execute("DELETE FROM positions WHERE id = %s AND user_id = %s", (position_id, user_id))
 
         cur.execute("""
             UPDATE portfolio
@@ -239,25 +247,28 @@ def close_position(position_id: int, close_price: float, reason: str = "manual")
                 total_pnl      = total_pnl + %s,
                 winning_trades = winning_trades + CASE WHEN %s > 0 THEN 1 ELSE 0 END,
                 losing_trades  = losing_trades  + CASE WHEN %s <= 0 THEN 1 ELSE 0 END
-            WHERE id = 1
+            WHERE id = %s
         """, (
             position["margin_used"] + realized_pnl,
             realized_pnl,
             realized_pnl,
-            realized_pnl
+            realized_pnl,
+            portfolio_id
         ))
 
     return history_record
 
 
-def get_performance_stats() -> dict:
-    """Get overall performance statistics"""
+def get_performance_stats(user_id: int) -> dict:
+    """Get overall performance statistics for a user."""
+    portfolio_id = get_user_portfolio_id(user_id)
+
     with get_cursor() as cur:
-        cur.execute("SELECT * FROM portfolio WHERE id = 1")
+        cur.execute("SELECT * FROM portfolio WHERE id = %s", (portfolio_id,))
         port = dict(cur.fetchone())
-        cur.execute("SELECT COUNT(*) AS cnt FROM positions")
+        cur.execute("SELECT COUNT(*) AS cnt FROM positions WHERE user_id = %s", (user_id,))
         open_count = cur.fetchone()["cnt"]
-        cur.execute("SELECT COUNT(*) AS cnt FROM trade_history")
+        cur.execute("SELECT COUNT(*) AS cnt FROM trade_history WHERE user_id = %s", (user_id,))
         history_count = cur.fetchone()["cnt"]
 
     win_rate = 0.0
@@ -280,12 +291,12 @@ def get_performance_stats() -> dict:
     }
 
 
-def get_performance_context(limit: int = 10) -> dict:
+def get_performance_context(user_id: int, limit: int = 10) -> dict:
     """
     Summarise recent closed-trade outcomes for the advisory agent feedback loop.
     Returns a structured dict the advisory prompt can reason about.
     """
-    data = _load_data()
+    data = get_portfolio(user_id)
     history = data.get("history", [])
     stats = data.get("stats", {})
 
@@ -373,8 +384,8 @@ def get_performance_context(limit: int = 10) -> dict:
     }
 
 
-def auto_execute_recommendations(recommendations: dict, current_prices: dict) -> list:
-    """Automatically open positions based on advisory recommendations"""
+def auto_execute_recommendations(user_id: int, recommendations: dict, current_prices: dict) -> list:
+    """Automatically open positions based on advisory recommendations for a user."""
     opened = []
 
     for rec in recommendations.get("recommendations", []):
@@ -385,9 +396,12 @@ def auto_execute_recommendations(recommendations: dict, current_prices: dict) ->
         if not symbol or symbol not in current_prices:
             continue
 
-        # Check if we already have a position for this symbol
+        # Check if user already has a position for this symbol
         with get_cursor() as cur:
-            cur.execute("SELECT id FROM positions WHERE symbol = %s LIMIT 1", (symbol,))
+            cur.execute(
+                "SELECT id FROM positions WHERE symbol = %s AND user_id = %s LIMIT 1",
+                (symbol, user_id)
+            )
             if cur.fetchone():
                 continue
 
@@ -396,6 +410,7 @@ def auto_execute_recommendations(recommendations: dict, current_prices: dict) ->
             continue
 
         position = open_position(
+            user_id=user_id,
             symbol=symbol,
             direction=rec.get("action", "long"),
             entry_price=current_price,
