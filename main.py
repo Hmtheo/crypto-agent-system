@@ -86,7 +86,7 @@ async def login_page():
 @app.get("/auth/google")
 async def google_login(request: Request):
     """Redirect to Google OAuth consent screen."""
-    redirect_uri = request.url_for("google_callback")
+    redirect_uri = os.environ.get("OAUTH_REDIRECT_URI") or str(request.url_for("google_callback"))
     return await oauth.google.authorize_redirect(request, redirect_uri)
 
 
