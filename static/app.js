@@ -34,6 +34,10 @@ function log(message, type = 'info') {
 async function fetchAPI(endpoint, options = {}) {
     try {
         const response = await fetch(`/api${endpoint}`, options);
+        if (response.status === 401) {
+            window.location.href = '/login';
+            return;
+        }
         if (!response.ok) {
             throw new Error(`HTTP error! status: ${response.status}`);
         }
