@@ -6,6 +6,7 @@ from fastapi import FastAPI, HTTPException, Depends, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, RedirectResponse
 from starlette.middleware.sessions import SessionMiddleware
+from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 from authlib.integrations.starlette_client import OAuth
 from dotenv import load_dotenv
 from pydantic import BaseModel
@@ -23,6 +24,9 @@ import database
 from database import init_db
 
 app = FastAPI(title="Crypto Agent System", version="1.0.0")
+
+# Trust Railway's reverse proxy so request.url_for() generates https:// URLs
+app.add_middleware(ProxyHeadersMiddleware, trusted_hosts="*")
 
 # Session middleware (must be added before routes are evaluated)
 app.add_middleware(
