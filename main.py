@@ -21,11 +21,21 @@ from database import init_db
 
 app = FastAPI(title="Crypto Agent System", version="1.0.0")
 
+# Track DB init state so the health check can surface errors
+_db_ready = False
+_db_error: str | None = None
+
 
 @app.on_event("startup")
 async def startup_event():
-    """Initialize database tables on startup"""
-    init_db()
+    """Initialize DB — non-fatal so Railway healthcheck still passes while we diagnose."""
+    global _db_ready, _db_error
+    try:
+        init_db()
+        _db_ready = True
+    except Exception as exc:
+        _db_error = str(exc)
+        print(f"[startup] WARNING: DB init failed: {exc}")
 
 
 # Serve static files
@@ -52,8 +62,13 @@ async def root():
 
 @app.get("/api/health")
 async def health_check():
-    """Health check endpoint"""
-    return {"status": "ok", "service": "crypto-agent-system"}
+    """Health check endpoint — always returns 200 so Railway doesn't 502 on DB failures."""
+    return {
+        "status": "ok",
+        "service": "crypto-agent-system",
+        "db_ready": _db_ready,
+        "db_error": _db_error,
+    }
 
 
 # Monitor Agent endpoints
