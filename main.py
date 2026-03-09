@@ -2,9 +2,12 @@
 Crypto Agent System - Main FastAPI Application
 """
 import os
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Depends, Request
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, RedirectResponse
+from starlette.middleware.sessions import SessionMiddleware
+from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
+from authlib.integrations.starlette_client import OAuth
 from dotenv import load_dotenv
 from pydantic import BaseModel
 from typing import Optional
@@ -17,6 +20,7 @@ from agents.monitor import run_monitor, get_prices, get_price_history, get_crypt
 from agents.analysis import analyze_market
 from agents.advisory import get_recommendations
 import paper_trading
+import database
 from database import init_db
 
 app = FastAPI(title="Crypto Agent System", version="1.0.0")
@@ -24,6 +28,25 @@ app = FastAPI(title="Crypto Agent System", version="1.0.0")
 # Track DB init state so the health check can surface errors
 _db_ready = False
 _db_error: str | None = None
+
+# Trust Railway's reverse proxy so request.url_for() generates https:// URLs
+app.add_middleware(ProxyHeadersMiddleware, trusted_hosts="*")
+
+# Session middleware (must be added before routes are evaluated)
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=os.environ.get("SECRET_KEY", "dev-insecure-secret-change-me")
+)
+
+# Google OAuth client
+oauth = OAuth()
+oauth.register(
+    name="google",
+    client_id=os.environ.get("GOOGLE_CLIENT_ID"),
+    client_secret=os.environ.get("GOOGLE_CLIENT_SECRET"),
+    server_metadata_url="https://accounts.google.com/.well-known/openid-configuration",
+    client_kwargs={"scope": "openid email profile"},
+)
 
 
 @app.on_event("startup")
@@ -42,7 +65,15 @@ async def startup_event():
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 
-# Request models
+# --- Auth dependency ---
+def get_current_user(request: Request) -> dict:
+    user = request.session.get("user")
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    return user
+
+
+# --- Request models ---
 class ResetPortfolioRequest(BaseModel):
     initial_balance: Optional[float] = 10000.0
 
@@ -52,17 +83,64 @@ class ClosePositionRequest(BaseModel):
     close_price: float
 
 
-# Routes
+# --- Auth routes ---
+@app.get("/login")
+async def login_page():
+    """Serve the login page."""
+    return FileResponse("static/login.html")
 
+
+@app.get("/auth/google")
+async def google_login(request: Request):
+    """Redirect to Google OAuth consent screen."""
+    redirect_uri = os.environ.get("OAUTH_REDIRECT_URI") or str(request.url_for("google_callback"))
+    return await oauth.google.authorize_redirect(request, redirect_uri)
+
+
+@app.get("/auth/google/callback", name="google_callback")
+async def google_callback(request: Request):
+    """Handle Google OAuth callback, create session, redirect to dashboard."""
+    try:
+        token = await oauth.google.authorize_access_token(request)
+    except Exception:
+        return RedirectResponse(url="/login")
+    user_info = token.get("userinfo")
+    if not user_info:
+        return RedirectResponse(url="/login")
+    user_id = database.get_or_create_user(
+        google_id=user_info["sub"],
+        email=user_info["email"],
+        name=user_info.get("name"),
+        picture=user_info.get("picture"),
+    )
+    request.session["user"] = {
+        "id": user_id,
+        "email": user_info["email"],
+        "name": user_info.get("name"),
+        "picture": user_info.get("picture"),
+    }
+    return RedirectResponse(url="/")
+
+
+@app.get("/auth/logout")
+async def logout(request: Request):
+    """Clear session and redirect to login."""
+    request.session.clear()
+    return RedirectResponse(url="/login")
+
+
+# --- App routes ---
 @app.get("/")
-async def root():
-    """Serve the main dashboard"""
+async def root(request: Request):
+    """Serve the main dashboard, or redirect to login if not authenticated."""
+    if not request.session.get("user"):
+        return RedirectResponse(url="/login")
     return FileResponse("static/index.html")
 
 
 @app.get("/api/health")
 async def health_check():
-    """Health check endpoint — always returns 200 so Railway doesn't 502 on DB failures."""
+    """Health check endpoint — public, no auth required."""
     return {
         "status": "ok",
         "service": "crypto-agent-system",
@@ -71,11 +149,10 @@ async def health_check():
     }
 
 
-# Monitor Agent endpoints
-
+# --- Monitor Agent endpoints ---
 @app.get("/api/monitor")
-async def monitor():
-    """Run the monitor agent to fetch current market data"""
+async def monitor(user: dict = Depends(get_current_user)):
+    """Run the monitor agent to fetch current market data."""
     try:
         data = await run_monitor()
         return data
@@ -84,8 +161,8 @@ async def monitor():
 
 
 @app.get("/api/prices")
-async def prices():
-    """Get current prices only"""
+async def prices(user: dict = Depends(get_current_user)):
+    """Get current prices only."""
     try:
         data = await get_prices()
         return data
@@ -94,8 +171,8 @@ async def prices():
 
 
 @app.get("/api/news")
-async def news():
-    """Get latest crypto news headlines"""
+async def news(user: dict = Depends(get_current_user)):
+    """Get latest crypto news headlines."""
     try:
         articles = await get_crypto_news()
         return {"news": articles}
@@ -104,8 +181,8 @@ async def news():
 
 
 @app.get("/api/history/{coin_id}")
-async def price_history(coin_id: str, days: int = 7):
-    """Get price history for a coin"""
+async def price_history(coin_id: str, days: int = 7, user: dict = Depends(get_current_user)):
+    """Get price history for a coin."""
     valid_coins = ["bitcoin", "ethereum", "solana"]
     if coin_id not in valid_coins:
         raise HTTPException(status_code=400, detail=f"Invalid coin. Use one of: {valid_coins}")
@@ -116,15 +193,12 @@ async def price_history(coin_id: str, days: int = 7):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# Analysis Agent endpoint
-
+# --- Analysis Agent endpoint ---
 @app.get("/api/analyze")
-async def analyze():
-    """Run monitor and analysis agents"""
+async def analyze(user: dict = Depends(get_current_user)):
+    """Run monitor and analysis agents."""
     try:
-        # First get monitor data
         monitor_data = await run_monitor()
-        # Then analyze it
         analysis = await analyze_market(monitor_data)
         return {
             "monitor": monitor_data,
@@ -134,15 +208,14 @@ async def analyze():
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# Advisory Agent endpoint
-
+# --- Advisory Agent endpoint ---
 @app.get("/api/recommend")
-async def recommend():
-    """Run all agents and get trade recommendations"""
+async def recommend(user: dict = Depends(get_current_user)):
+    """Run all agents and get trade recommendations."""
     try:
         monitor_data = await run_monitor()
         analysis = await analyze_market(monitor_data)
-        performance_ctx = paper_trading.get_performance_context()
+        performance_ctx = paper_trading.get_performance_context(user["id"])
         recommendations = await get_recommendations(monitor_data, analysis, performance_ctx)
         return {
             "monitor": monitor_data,
@@ -154,33 +227,32 @@ async def recommend():
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# Paper Trading endpoints
-
+# --- Paper Trading endpoints ---
 @app.get("/api/portfolio")
-async def get_portfolio():
-    """Get current paper trading portfolio"""
-    return paper_trading.get_portfolio()
+async def get_portfolio(user: dict = Depends(get_current_user)):
+    """Get current paper trading portfolio."""
+    return paper_trading.get_portfolio(user["id"])
 
 
 @app.post("/api/portfolio/reset")
-async def reset_portfolio(request: ResetPortfolioRequest):
-    """Reset paper trading portfolio"""
-    return paper_trading.reset_portfolio(request.initial_balance)
+async def reset_portfolio(request: ResetPortfolioRequest, user: dict = Depends(get_current_user)):
+    """Reset paper trading portfolio."""
+    return paper_trading.reset_portfolio(user["id"], request.initial_balance)
 
 
 @app.get("/api/portfolio/stats")
-async def get_stats():
-    """Get performance statistics"""
-    return paper_trading.get_performance_stats()
+async def get_stats(user: dict = Depends(get_current_user)):
+    """Get performance statistics."""
+    return paper_trading.get_performance_stats(user["id"])
 
 
 @app.post("/api/portfolio/update")
-async def update_positions():
-    """Update positions with current prices and check TP/SL"""
+async def update_positions(user: dict = Depends(get_current_user)):
+    """Update positions with current prices and check TP/SL."""
     try:
         current_prices = await get_prices()
-        closed = paper_trading.update_positions(current_prices)
-        portfolio = paper_trading.get_portfolio()
+        closed = paper_trading.update_positions(user["id"], current_prices)
+        portfolio = paper_trading.get_portfolio(user["id"])
         return {
             "closed_positions": closed,
             "portfolio": portfolio
@@ -190,9 +262,10 @@ async def update_positions():
 
 
 @app.post("/api/portfolio/close")
-async def close_position(request: ClosePositionRequest):
-    """Manually close a position"""
+async def close_position(request: ClosePositionRequest, user: dict = Depends(get_current_user)):
+    """Manually close a position."""
     result = paper_trading.close_position(
+        user["id"],
         request.position_id,
         request.close_price,
         "manual"
@@ -203,28 +276,27 @@ async def close_position(request: ClosePositionRequest):
 
 
 @app.post("/api/execute")
-async def execute_recommendations():
-    """Run all agents, get recommendations, and auto-execute trades"""
+async def execute_recommendations(user: dict = Depends(get_current_user)):
+    """Run all agents, get recommendations, and auto-execute trades."""
     try:
         monitor_data = await run_monitor()
         analysis = await analyze_market(monitor_data)
-        performance_ctx = paper_trading.get_performance_context()
+        performance_ctx = paper_trading.get_performance_context(user["id"])
         recommendations = await get_recommendations(monitor_data, analysis, performance_ctx)
         # Auto-execute
         current_prices = monitor_data.get("prices", {})
         opened_positions = paper_trading.auto_execute_recommendations(
-            recommendations, current_prices
+            user["id"], recommendations, current_prices
         )
         # Also update existing positions
-        closed_positions = paper_trading.update_positions(current_prices)
-
+        closed_positions = paper_trading.update_positions(user["id"], current_prices)
         return {
             "monitor": monitor_data,
             "analysis": analysis,
             "recommendations": recommendations,
             "opened_positions": opened_positions,
             "closed_positions": closed_positions,
-            "portfolio": paper_trading.get_portfolio()
+            "portfolio": paper_trading.get_portfolio(user["id"])
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
