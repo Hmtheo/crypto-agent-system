@@ -1,6 +1,17 @@
 // Crypto Agent Trading System - Frontend JavaScript
 
+// =====================
+// State
+// =====================
+
+let currentView = 'dashboard';
+let activityLogs = [];  // structured activity log for Logs view
+let portfolioHistory = [];  // latest trade history for Logs view
+
+// =====================
 // Utility functions
+// =====================
+
 function formatCurrency(amount) {
     return new Intl.NumberFormat('en-US', {
         style: 'currency',
@@ -19,18 +30,158 @@ function formatTime(isoString) {
     return new Date(isoString).toLocaleString();
 }
 
-function log(message, type = 'info') {
-    const logContent = document.getElementById('logContent');
-    const entry = document.createElement('div');
-    entry.className = 'log-entry';
-    entry.innerHTML = `
-        <span class="log-time">${new Date().toLocaleTimeString()}</span>
-        <span class="log-message ${type}">${message}</span>
-    `;
-    logContent.insertBefore(entry, logContent.firstChild);
+function formatTokens(tokens) {
+    if (!tokens) return null;
+    if (typeof tokens === 'number') return tokens.toLocaleString();
+    if (tokens.total) return tokens.total.toLocaleString();
+    if (tokens.input_tokens != null) {
+        const total = (tokens.input_tokens || 0) + (tokens.output_tokens || 0);
+        return total.toLocaleString();
+    }
+    return null;
 }
 
+// =====================
+// Activity log (in-memory structured log)
+// =====================
+
+function addActivityEntry({ action, agent = null, status = 'info', details = '', tokens = null }) {
+    activityLogs.unshift({
+        time: new Date(),
+        action,
+        agent,
+        status,
+        details,
+        tokens
+    });
+    // Keep last 200 entries
+    if (activityLogs.length > 200) activityLogs.length = 200;
+    // If logs view is active, refresh it
+    if (currentView === 'logs') renderLogsView();
+}
+
+// =====================
+// Navigation
+// =====================
+
+function navigateTo(view) {
+    currentView = view;
+
+    document.getElementById('dashboardView').style.display = view === 'dashboard' ? '' : 'none';
+    document.getElementById('logsView').style.display = view === 'logs' ? '' : 'none';
+
+    document.querySelectorAll('.nav-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.view === view);
+    });
+
+    if (view === 'logs') renderLogsView();
+}
+
+// =====================
+// Render Logs View
+// =====================
+
+function renderLogsView() {
+    renderTransactionHistory();
+    renderActivityLogTable();
+}
+
+function renderTransactionHistory() {
+    const el = document.getElementById('logsHistoryContent');
+    if (!portfolioHistory || portfolioHistory.length === 0) {
+        el.innerHTML = '<p class="no-data-msg">No closed trades yet.</p>';
+        return;
+    }
+
+    const rows = portfolioHistory.slice().reverse().map(trade => `
+        <tr>
+            <td><strong>${trade.symbol}</strong></td>
+            <td class="${trade.direction === 'long' ? 'pnl-positive' : 'pnl-negative'}">${trade.direction.toUpperCase()}</td>
+            <td>${formatCurrency(trade.entry_price)}</td>
+            <td>${formatCurrency(trade.close_price)}</td>
+            <td>${trade.leverage != null ? trade.leverage + 'x' : '—'}</td>
+            <td class="${trade.realized_pnl >= 0 ? 'pnl-positive' : 'pnl-negative'}">
+                ${formatCurrency(trade.realized_pnl)}
+            </td>
+            <td class="${trade.realized_pnl >= 0 ? 'pnl-positive' : 'pnl-negative'}">
+                ${trade.realized_pnl_percent != null ? formatPercent(trade.realized_pnl_percent) : '—'}
+            </td>
+            <td>${trade.close_reason || '—'}</td>
+            <td>${trade.was_profitable ? '<span class="activity-badge success">Win</span>' : '<span class="activity-badge error">Loss</span>'}</td>
+            <td style="white-space:nowrap;">${formatTime(trade.closed_at)}</td>
+        </tr>
+    `).join('');
+
+    el.innerHTML = `
+        <table>
+            <thead>
+                <tr>
+                    <th>Symbol</th>
+                    <th>Direction</th>
+                    <th>Entry Price</th>
+                    <th>Exit Price</th>
+                    <th>Leverage</th>
+                    <th>Realized P&amp;L</th>
+                    <th>P&amp;L %</th>
+                    <th>Close Reason</th>
+                    <th>Result</th>
+                    <th>Closed At</th>
+                </tr>
+            </thead>
+            <tbody>${rows}</tbody>
+        </table>
+    `;
+}
+
+function renderActivityLogTable() {
+    const el = document.getElementById('logsActivityContent');
+    if (activityLogs.length === 0) {
+        el.innerHTML = '<p class="no-data-msg">No activity yet. Run agents to get started.</p>';
+        return;
+    }
+
+    const rows = activityLogs.map(entry => {
+        const tokenStr = formatTokens(entry.tokens);
+        const tokenCell = tokenStr
+            ? `<span class="tokens-cell">${tokenStr}</span>`
+            : `<span class="tokens-na">—</span>`;
+
+        const badgeClass = entry.status === 'success' ? 'success'
+            : entry.status === 'error' ? 'error' : 'info';
+
+        return `
+            <tr>
+                <td style="white-space:nowrap;">${entry.time.toLocaleTimeString()}</td>
+                <td>${entry.action}</td>
+                <td>${entry.agent || '—'}</td>
+                <td><span class="activity-badge ${badgeClass}">${entry.status}</span></td>
+                <td>${entry.details}</td>
+                <td>${tokenCell}</td>
+            </tr>
+        `;
+    }).join('');
+
+    el.innerHTML = `
+        <table>
+            <thead>
+                <tr>
+                    <th>Time</th>
+                    <th>Action</th>
+                    <th>Agent</th>
+                    <th>Status</th>
+                    <th>Details</th>
+                    <th>Tokens Used</th>
+                </tr>
+            </thead>
+            <tbody>${rows}</tbody>
+        </table>
+    `;
+}
+
+// =====================
 // API calls
+// =====================
+
 async function fetchAPI(endpoint, options = {}) {
     try {
         const response = await fetch(`/api${endpoint}`, options);
@@ -43,12 +194,15 @@ async function fetchAPI(endpoint, options = {}) {
         }
         return await response.json();
     } catch (error) {
-        log(`Error: ${error.message}`, 'error');
+        addActivityEntry({ action: 'API Error', status: 'error', details: error.message });
         throw error;
     }
 }
 
+// =====================
 // Headlines / news
+// =====================
+
 let headlinesExpanded = false;
 
 async function loadHeadlines() {
@@ -68,7 +222,6 @@ function updateHeadlines(articles) {
         return;
     }
 
-    // Ticker — duplicate items for seamless loop
     const tickerItems = articles.map(a => `
         <span class="ticker-item">
             <a href="${a.url || '#'}" target="_blank" rel="noopener">${a.title}</a>
@@ -76,13 +229,12 @@ function updateHeadlines(articles) {
             <span class="ticker-time">${a.published_at}</span>
         </span>
     `).join('');
-    track.innerHTML = tickerItems + tickerItems;  // duplicate for seamless wrap
+    track.innerHTML = tickerItems + tickerItems;
 
-    // Cards for expanded view
     cards.innerHTML = articles.map(a => `
         <div class="headline-card">
             <a href="${a.url || '#'}" target="_blank" rel="noopener">${a.title}</a>
-            <div class="headline-card-meta">${a.source} · ${a.published_at}</div>
+            <div class="headline-card-meta">${a.source} &middot; ${a.published_at}</div>
             ${a.body_snippet ? `<div class="headline-card-snippet">${a.body_snippet}</div>` : ''}
         </div>
     `).join('');
@@ -93,10 +245,13 @@ function toggleHeadlines() {
     const cards = document.getElementById('headlinesCards');
     const btn = document.getElementById('toggleHeadlines');
     cards.style.display = headlinesExpanded ? 'grid' : 'none';
-    btn.textContent = headlinesExpanded ? 'Hide articles ▴' : 'Show articles ▾';
+    btn.textContent = headlinesExpanded ? 'Hide articles \u25B4' : 'Show articles \u25BE';
 }
 
-// Update price display
+// =====================
+// Prices
+// =====================
+
 function updatePrices(prices) {
     if (!prices) return;
 
@@ -120,7 +275,10 @@ function updatePrices(prices) {
     }
 }
 
-// Update portfolio display
+// =====================
+// Portfolio
+// =====================
+
 function updatePortfolio(portfolio, stats) {
     if (stats) {
         document.getElementById('balance').textContent = formatCurrency(stats.current_balance);
@@ -133,7 +291,7 @@ function updatePortfolio(portfolio, stats) {
         document.getElementById('totalTrades').textContent = stats.total_trades;
     }
 
-    // Update positions
+    // Open positions
     const positionsContent = document.getElementById('positionsContent');
     if (portfolio && portfolio.positions && portfolio.positions.length > 0) {
         positionsContent.innerHTML = `
@@ -145,7 +303,7 @@ function updatePortfolio(portfolio, stats) {
                         <th>Entry</th>
                         <th>Current</th>
                         <th>Leverage</th>
-                        <th>P&L</th>
+                        <th>P&amp;L</th>
                         <th>TP / SL</th>
                     </tr>
                 </thead>
@@ -170,45 +328,17 @@ function updatePortfolio(portfolio, stats) {
         positionsContent.innerHTML = '<p class="no-positions">No open positions</p>';
     }
 
-    // Update history
-    const historyContent = document.getElementById('historyContent');
-    if (portfolio && portfolio.history && portfolio.history.length > 0) {
-        historyContent.innerHTML = `
-            <table>
-                <thead>
-                    <tr>
-                        <th>Symbol</th>
-                        <th>Direction</th>
-                        <th>Entry</th>
-                        <th>Exit</th>
-                        <th>P&L</th>
-                        <th>Result</th>
-                        <th>Closed</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    ${portfolio.history.slice().reverse().map(trade => `
-                        <tr>
-                            <td><strong>${trade.symbol}</strong></td>
-                            <td>${trade.direction.toUpperCase()}</td>
-                            <td>${formatCurrency(trade.entry_price)}</td>
-                            <td>${formatCurrency(trade.close_price)}</td>
-                            <td class="${trade.realized_pnl >= 0 ? 'pnl-positive' : 'pnl-negative'}">
-                                ${formatCurrency(trade.realized_pnl)}
-                            </td>
-                            <td>${trade.was_profitable ? '✅ Win' : '❌ Loss'}</td>
-                            <td>${formatTime(trade.closed_at)}</td>
-                        </tr>
-                    `).join('')}
-                </tbody>
-            </table>
-        `;
-    } else {
-        historyContent.innerHTML = '<p class="no-history">No trade history</p>';
+    // Store history for Logs view
+    if (portfolio && portfolio.history) {
+        portfolioHistory = portfolio.history;
+        if (currentView === 'logs') renderTransactionHistory();
     }
 }
 
-// Update analysis display
+// =====================
+// Analysis
+// =====================
+
 function updateAnalysis(analysis) {
     if (!analysis) return;
 
@@ -227,7 +357,10 @@ function updateAnalysis(analysis) {
     riskEl.className = `risk ${analysis.risk_level}`;
 }
 
-// Update recommendations display
+// =====================
+// Recommendations
+// =====================
+
 function updateRecommendations(recommendations) {
     if (!recommendations || !recommendations.recommendations) return;
 
@@ -255,7 +388,6 @@ function updateRecommendations(recommendations) {
         </div>
     `).join('');
 
-    // Show overall advice
     if (recommendations.portfolio_advice) {
         content.innerHTML += `
             <div class="recommendation-card" style="grid-column: 1 / -1; border-left-color: #00d4ff;">
@@ -271,12 +403,16 @@ function updateRecommendations(recommendations) {
     }
 }
 
-// Run all agents
+// =====================
+// Run All Agents
+// =====================
+
 async function runAgents() {
     const btn = document.getElementById('runAgents');
     btn.disabled = true;
-    btn.textContent = '⏳ Running...';
-    log('Starting all agents...', 'info');
+    btn.textContent = 'Running...';
+
+    addActivityEntry({ action: 'Run All Agents', agent: 'System', status: 'info', details: 'Starting monitor, analysis & advisory agents...' });
 
     try {
         const result = await fetchAPI('/execute', { method: 'POST' });
@@ -285,73 +421,114 @@ async function runAgents() {
         updateAnalysis(result.analysis);
         updateRecommendations(result.recommendations);
 
-        // Fetch and update portfolio
         const stats = await fetchAPI('/portfolio/stats');
         updatePortfolio(result.portfolio, stats);
 
-        document.getElementById('lastUpdate').textContent = `Last updated: ${new Date().toLocaleTimeString()}`;
+        document.getElementById('lastUpdate').textContent = `Updated ${new Date().toLocaleTimeString()}`;
 
-        // Log results
-        log('Monitor agent completed - prices fetched', 'success');
-        log('Analysis agent completed - market analyzed', 'success');
-        log('Advisory agent completed - recommendations generated', 'success');
+        // Extract token usage if available
+        const analysisTokens = result.analysis?.usage || result.analysis?.tokens_used || null;
+        const advisoryTokens = result.recommendations?.usage || result.recommendations?.tokens_used || null;
+
+        addActivityEntry({
+            action: 'Run All Agents',
+            agent: 'Monitor',
+            status: 'success',
+            details: 'Prices & news fetched',
+            tokens: null
+        });
+
+        addActivityEntry({
+            action: 'Run All Agents',
+            agent: 'Analysis',
+            status: 'success',
+            details: `Sentiment: ${result.analysis?.market_sentiment || 'N/A'} | Risk: ${result.analysis?.risk_level || 'N/A'}`,
+            tokens: analysisTokens
+        });
+
+        addActivityEntry({
+            action: 'Run All Agents',
+            agent: 'Advisory',
+            status: 'success',
+            details: `${result.recommendations?.recommendations?.length || 0} recommendations generated`,
+            tokens: advisoryTokens
+        });
 
         if (result.opened_positions?.length > 0) {
             result.opened_positions.forEach(pos => {
-                log(`Opened ${pos.direction.toUpperCase()} position for ${pos.symbol} at ${formatCurrency(pos.entry_price)}`, 'success');
+                addActivityEntry({
+                    action: 'Trade Opened',
+                    agent: 'Advisory',
+                    status: 'success',
+                    details: `${pos.direction.toUpperCase()} ${pos.symbol} at ${formatCurrency(pos.entry_price)}`
+                });
             });
         }
 
         if (result.closed_positions?.length > 0) {
             result.closed_positions.forEach(pos => {
-                const outcome = pos.realized_pnl >= 0 ? 'profit' : 'loss';
-                log(`Closed ${pos.symbol} position with ${formatCurrency(pos.realized_pnl)} ${outcome}`, pos.realized_pnl >= 0 ? 'success' : 'error');
+                addActivityEntry({
+                    action: 'Position Closed',
+                    agent: 'System',
+                    status: pos.realized_pnl >= 0 ? 'success' : 'error',
+                    details: `${pos.symbol} closed with ${formatCurrency(pos.realized_pnl)}`
+                });
             });
         }
 
     } catch (error) {
-        log(`Failed to run agents: ${error.message}`, 'error');
+        addActivityEntry({ action: 'Run All Agents', agent: 'System', status: 'error', details: error.message });
     } finally {
         btn.disabled = false;
-        btn.textContent = '▶️ Run All Agents';
+        btn.textContent = '\u25B6 Run All Agents';
     }
 }
 
-// Update positions
+// =====================
+// Update Positions
+// =====================
+
 async function updatePositions() {
     const btn = document.getElementById('updatePositions');
     btn.disabled = true;
-    log('Updating positions...', 'info');
+
+    addActivityEntry({ action: 'Update Positions', agent: 'System', status: 'info', details: 'Checking TP/SL levels...' });
 
     try {
         const result = await fetchAPI('/portfolio/update', { method: 'POST' });
         const stats = await fetchAPI('/portfolio/stats');
-
         updatePortfolio(result.portfolio, stats);
 
         if (result.closed_positions?.length > 0) {
             result.closed_positions.forEach(pos => {
-                const outcome = pos.realized_pnl >= 0 ? 'profit' : 'loss';
-                log(`Position closed: ${pos.symbol} with ${formatCurrency(pos.realized_pnl)} ${outcome}`, pos.realized_pnl >= 0 ? 'success' : 'error');
+                addActivityEntry({
+                    action: 'Position Closed',
+                    agent: 'System',
+                    status: pos.realized_pnl >= 0 ? 'success' : 'error',
+                    details: `${pos.symbol} closed with ${formatCurrency(pos.realized_pnl)}`
+                });
             });
         } else {
-            log('Positions updated - no closes triggered', 'info');
+            addActivityEntry({ action: 'Update Positions', agent: 'System', status: 'success', details: 'No TP/SL levels triggered' });
         }
 
     } catch (error) {
-        log(`Failed to update positions: ${error.message}`, 'error');
+        addActivityEntry({ action: 'Update Positions', agent: 'System', status: 'error', details: error.message });
     } finally {
         btn.disabled = false;
     }
 }
 
-// Reset portfolio
+// =====================
+// Reset Portfolio
+// =====================
+
 async function resetPortfolio() {
     if (!confirm('Are you sure you want to reset your portfolio? All positions and history will be lost.')) {
         return;
     }
 
-    log('Resetting portfolio...', 'info');
+    addActivityEntry({ action: 'Reset Portfolio', agent: 'System', status: 'info', details: 'Resetting to $10,000...' });
 
     try {
         await fetchAPI('/portfolio/reset', {
@@ -364,14 +541,18 @@ async function resetPortfolio() {
         const stats = await fetchAPI('/portfolio/stats');
         updatePortfolio(portfolio, stats);
 
-        log('Portfolio reset to $10,000', 'success');
+        portfolioHistory = [];
+        addActivityEntry({ action: 'Reset Portfolio', agent: 'System', status: 'success', details: 'Portfolio reset to $10,000' });
 
     } catch (error) {
-        log(`Failed to reset portfolio: ${error.message}`, 'error');
+        addActivityEntry({ action: 'Reset Portfolio', agent: 'System', status: 'error', details: error.message });
     }
 }
 
-// Load initial prices
+// =====================
+// Load initial data
+// =====================
+
 async function loadPrices() {
     try {
         const prices = await fetchAPI('/prices');
@@ -381,7 +562,6 @@ async function loadPrices() {
     }
 }
 
-// Load portfolio
 async function loadPortfolio() {
     try {
         const portfolio = await fetchAPI('/portfolio');
@@ -392,23 +572,33 @@ async function loadPortfolio() {
     }
 }
 
+// =====================
 // Initialize
+// =====================
+
 document.addEventListener('DOMContentLoaded', () => {
     // Load initial data
     loadPrices();
     loadPortfolio();
     loadHeadlines();
 
-    // Set up event listeners
+    // Navigation
+    document.querySelectorAll('.nav-btn').forEach(btn => {
+        btn.addEventListener('click', () => navigateTo(btn.dataset.view));
+    });
+
+    // Action buttons
     document.getElementById('runAgents').addEventListener('click', runAgents);
     document.getElementById('updatePositions').addEventListener('click', updatePositions);
     document.getElementById('resetPortfolio').addEventListener('click', resetPortfolio);
+
+    // News
     document.getElementById('refreshNews').addEventListener('click', loadHeadlines);
     document.getElementById('toggleHeadlines').addEventListener('click', toggleHeadlines);
 
-    // Auto-refresh prices every 30 seconds, news every 5 minutes
+    // Auto-refresh
     setInterval(loadPrices, 30000);
     setInterval(loadHeadlines, 300000);
 
-    log('System initialized', 'success');
+    addActivityEntry({ action: 'System Start', agent: 'System', status: 'success', details: 'Perple initialized' });
 });

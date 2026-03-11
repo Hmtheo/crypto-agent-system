@@ -8,126 +8,173 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
-    <div class="container">
-        <header>
-            <h1>Perple</h1>
-            <p class="subtitle">AI-Powered Paper Trading for BTC, ETH, SOL</p>
-        </header>
+    <div class="app-layout">
 
-        <!-- Headlines Ticker -->
-        <section class="headlines-section">
-            <div class="headlines-header">
-                <span class="headlines-label">LIVE NEWS</span>
-                <button id="refreshNews" class="headlines-refresh" title="Refresh news">↻</button>
+        <!-- Left Sidebar Navigation -->
+        <nav class="sidebar">
+            <div class="sidebar-brand">
+                <h1 class="brand-title">Perple</h1>
+                <p class="brand-subtitle">AI Paper Trading</p>
             </div>
-            <div id="headlinesTicker" class="headlines-ticker">
-                <div id="headlinesTrack" class="headlines-track">
-                    <span class="headlines-loading">Loading latest crypto news...</span>
+
+            <div class="sidebar-nav">
+                <button class="nav-btn active" id="navDashboard" data-view="dashboard">
+                    <span class="nav-icon">&#9783;</span>
+                    <span>Dashboard</span>
+                </button>
+                <button class="nav-btn" id="navLogs" data-view="logs">
+                    <span class="nav-icon">&#9776;</span>
+                    <span>Logs</span>
+                </button>
+            </div>
+
+            <div class="sidebar-divider"></div>
+
+            <div class="sidebar-actions">
+                <button id="runAgents" class="btn primary sidebar-btn">&#9654; Run All Agents</button>
+                <button id="updatePositions" class="btn secondary sidebar-btn">&#8635; Update Positions</button>
+                <button id="resetPortfolio" class="btn danger sidebar-btn">&#10005; Reset Portfolio</button>
+            </div>
+
+            <div class="sidebar-footer">
+                <span id="lastUpdate" class="last-update"></span>
+            </div>
+        </nav>
+
+        <!-- Main Content Area -->
+        <main class="main-content">
+
+            <!-- Dashboard View -->
+            <div id="dashboardView" class="view">
+
+                <!-- Headlines Ticker -->
+                <section class="headlines-section">
+                    <div class="headlines-header">
+                        <span class="headlines-label">LIVE NEWS</span>
+                        <button id="refreshNews" class="headlines-refresh" title="Refresh news">&#8635;</button>
+                    </div>
+                    <div id="headlinesTicker" class="headlines-ticker">
+                        <div id="headlinesTrack" class="headlines-track">
+                            <span class="headlines-loading">Loading latest crypto news...</span>
+                        </div>
+                    </div>
+                    <div id="headlinesCards" class="headlines-cards" style="display:none;"></div>
+                    <button id="toggleHeadlines" class="headlines-toggle">Show articles &#9662;</button>
+                </section>
+
+                <!-- Portfolio Summary -->
+                <section class="portfolio-summary">
+                    <div class="stat-card">
+                        <h3>Balance</h3>
+                        <p id="balance" class="stat-value">$10,000.00</p>
+                    </div>
+                    <div class="stat-card">
+                        <h3>Total P&amp;L</h3>
+                        <p id="totalPnl" class="stat-value">$0.00</p>
+                    </div>
+                    <div class="stat-card">
+                        <h3>Win Rate</h3>
+                        <p id="winRate" class="stat-value">0%</p>
+                    </div>
+                    <div class="stat-card">
+                        <h3>Total Trades</h3>
+                        <p id="totalTrades" class="stat-value">0</p>
+                    </div>
+                </section>
+
+                <!-- Price Cards -->
+                <section class="price-section">
+                    <h2>Live Prices</h2>
+                    <div class="price-cards">
+                        <div class="price-card btc">
+                            <h3>&#8383; Bitcoin</h3>
+                            <p id="btcPrice" class="price">Loading...</p>
+                            <p id="btcChange" class="change">--</p>
+                        </div>
+                        <div class="price-card eth">
+                            <h3>&#926; Ethereum</h3>
+                            <p id="ethPrice" class="price">Loading...</p>
+                            <p id="ethChange" class="change">--</p>
+                        </div>
+                        <div class="price-card sol">
+                            <h3>&#9675; Solana</h3>
+                            <p id="solPrice" class="price">Loading...</p>
+                            <p id="solChange" class="change">--</p>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Market Analysis -->
+                <section class="analysis-section">
+                    <h2>AI Analysis</h2>
+                    <div id="analysisLoading" class="loading">Click "Run All Agents" to analyze market</div>
+                    <div id="analysisContent" class="analysis-content" style="display:none;">
+                        <div class="sentiment-card">
+                            <h3>Market Sentiment</h3>
+                            <p id="sentiment" class="sentiment">--</p>
+                            <p id="sentimentScore" class="sentiment-score">Score: --</p>
+                        </div>
+                        <div class="summary-card">
+                            <h3>Market Summary</h3>
+                            <p id="marketSummary">--</p>
+                        </div>
+                        <div class="risk-card">
+                            <h3>Risk Level</h3>
+                            <p id="riskLevel" class="risk">--</p>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Recommendations -->
+                <section class="recommendations-section">
+                    <h2>Trade Recommendations</h2>
+                    <div id="recommendationsLoading" class="loading">Run agents to get recommendations</div>
+                    <div id="recommendationsContent" class="recommendations-grid" style="display:none;"></div>
+                </section>
+
+                <!-- Open Positions -->
+                <section class="positions-section">
+                    <h2>Open Positions</h2>
+                    <div id="positionsContent" class="positions-table">
+                        <p class="no-positions">No open positions</p>
+                    </div>
+                </section>
+
+            </div><!-- end dashboardView -->
+
+            <!-- Logs View -->
+            <div id="logsView" class="view" style="display:none;">
+
+                <div class="logs-page-header">
+                    <h1 class="logs-page-title">Logs</h1>
+                    <p class="logs-page-subtitle">Transaction history &amp; agent activity</p>
                 </div>
-            </div>
-            <div id="headlinesCards" class="headlines-cards" style="display:none;"></div>
-            <button id="toggleHeadlines" class="headlines-toggle">Show articles ▾</button>
-        </section>
 
-        <!-- Control Panel -->
-        <section class="control-panel">
-            <button id="runAgents" class="btn primary">▶️ Run All Agents</button>
-            <button id="updatePositions" class="btn secondary">🔄 Update Positions</button>
-            <button id="resetPortfolio" class="btn danger">🗑️ Reset Portfolio</button>
-            <span id="lastUpdate" class="last-update"></span>
-        </section>
+                <!-- Table 1: Transaction History -->
+                <section class="log-section-block">
+                    <div class="log-section-heading">
+                        <h2>Transaction History</h2>
+                        <span class="log-section-desc">All closed positions</span>
+                    </div>
+                    <div id="logsHistoryContent" class="logs-table-wrap">
+                        <p class="no-data-msg">No trade history yet.</p>
+                    </div>
+                </section>
 
-        <!-- Portfolio Summary -->
-        <section class="portfolio-summary">
-            <div class="stat-card">
-                <h3>Balance</h3>
-                <p id="balance" class="stat-value">$10,000.00</p>
-            </div>
-            <div class="stat-card">
-                <h3>Total P&L</h3>
-                <p id="totalPnl" class="stat-value">$0.00</p>
-            </div>
-            <div class="stat-card">
-                <h3>Win Rate</h3>
-                <p id="winRate" class="stat-value">0%</p>
-            </div>
-            <div class="stat-card">
-                <h3>Total Trades</h3>
-                <p id="totalTrades" class="stat-value">0</p>
-            </div>
-        </section>
+                <!-- Table 2: Activity Log -->
+                <section class="log-section-block">
+                    <div class="log-section-heading">
+                        <h2>Activity Log</h2>
+                        <span class="log-section-desc">Agent runs &amp; token usage</span>
+                    </div>
+                    <div id="logsActivityContent" class="logs-table-wrap">
+                        <p class="no-data-msg">No activity yet. Run agents to get started.</p>
+                    </div>
+                </section>
 
-        <!-- Price Cards -->
-        <section class="price-section">
-            <h2>📊 Live Prices</h2>
-            <div class="price-cards">
-                <div class="price-card btc">
-                    <h3>₿ Bitcoin</h3>
-                    <p id="btcPrice" class="price">Loading...</p>
-                    <p id="btcChange" class="change">--</p>
-                </div>
-                <div class="price-card eth">
-                    <h3>Ξ Ethereum</h3>
-                    <p id="ethPrice" class="price">Loading...</p>
-                    <p id="ethChange" class="change">--</p>
-                </div>
-                <div class="price-card sol">
-                    <h3>◎ Solana</h3>
-                    <p id="solPrice" class="price">Loading...</p>
-                    <p id="solChange" class="change">--</p>
-                </div>
-            </div>
-        </section>
+            </div><!-- end logsView -->
 
-        <!-- Market Analysis -->
-        <section class="analysis-section">
-            <h2>🧠 AI Analysis</h2>
-            <div id="analysisLoading" class="loading">Click "Run All Agents" to analyze market</div>
-            <div id="analysisContent" class="analysis-content" style="display:none;">
-                <div class="sentiment-card">
-                    <h3>Market Sentiment</h3>
-                    <p id="sentiment" class="sentiment">--</p>
-                    <p id="sentimentScore" class="sentiment-score">Score: --</p>
-                </div>
-                <div class="summary-card">
-                    <h3>Market Summary</h3>
-                    <p id="marketSummary">--</p>
-                </div>
-                <div class="risk-card">
-                    <h3>Risk Level</h3>
-                    <p id="riskLevel" class="risk">--</p>
-                </div>
-            </div>
-        </section>
-
-        <!-- Recommendations -->
-        <section class="recommendations-section">
-            <h2>💡 Trade Recommendations</h2>
-            <div id="recommendationsLoading" class="loading">Run agents to get recommendations</div>
-            <div id="recommendationsContent" class="recommendations-grid" style="display:none;"></div>
-        </section>
-
-        <!-- Open Positions -->
-        <section class="positions-section">
-            <h2>📈 Open Positions</h2>
-            <div id="positionsContent" class="positions-table">
-                <p class="no-positions">No open positions</p>
-            </div>
-        </section>
-
-        <!-- Trade History -->
-        <section class="history-section">
-            <h2>📜 Trade History</h2>
-            <div id="historyContent" class="history-table">
-                <p class="no-history">No trade history</p>
-            </div>
-        </section>
-
-        <!-- Status Log -->
-        <section class="log-section">
-            <h2>📝 Activity Log</h2>
-            <div id="logContent" class="log-content"></div>
-        </section>
+        </main>
     </div>
 
     <script src="/static/app.js"></script>
