@@ -70,7 +70,7 @@ function navigateTo(view) {
     document.getElementById('dashboardView').style.display = view === 'dashboard' ? '' : 'none';
     document.getElementById('logsView').style.display = view === 'logs' ? '' : 'none';
 
-    document.querySelectorAll('.nav-btn').forEach(btn => {
+    document.querySelectorAll('.nav-item[data-view]').forEach(btn => {
         btn.classList.toggle('active', btn.dataset.view === view);
     });
 
