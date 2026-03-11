@@ -96,7 +96,7 @@ body {
     font-size: 0.65rem;
     font-weight: 700;
     letter-spacing: 0.1em;
-    color: #2d3748;
+    color: #3d4f6b;
     padding: 0 8px;
     margin-bottom: 6px;
     text-transform: uppercase;
@@ -147,7 +147,7 @@ body {
     justify-content: center;
     width: 22px;
     height: 22px;
-    color: #2d3748;
+    color: #3d4f6b;
     flex-shrink: 0;
     transition: color 0.18s ease;
 }
@@ -202,7 +202,7 @@ body {
 }
 
 .last-update {
-    color: #2d3748;
+    color: #3d4f6b;
     font-size: 0.72rem;
     line-height: 1.5;
     display: block;
