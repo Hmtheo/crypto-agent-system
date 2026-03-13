@@ -56,7 +56,6 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 
 
 # --- Auth dependency ---
-
 def get_current_user(request: Request) -> dict:
     user = request.session.get("user")
     if not user:
@@ -65,7 +64,6 @@ def get_current_user(request: Request) -> dict:
 
 
 # --- Request models ---
-
 class ResetPortfolioRequest(BaseModel):
     initial_balance: Optional[float] = 10000.0
 
@@ -76,7 +74,6 @@ class ClosePositionRequest(BaseModel):
 
 
 # --- Auth routes ---
-
 @app.get("/login")
 async def login_page():
     """Serve the login page."""
@@ -97,18 +94,15 @@ async def google_callback(request: Request):
         token = await oauth.google.authorize_access_token(request)
     except Exception:
         return RedirectResponse(url="/login")
-
     user_info = token.get("userinfo")
     if not user_info:
         return RedirectResponse(url="/login")
-
     user_id = database.get_or_create_user(
         google_id=user_info["sub"],
         email=user_info["email"],
         name=user_info.get("name"),
         picture=user_info.get("picture"),
     )
-
     request.session["user"] = {
         "id": user_id,
         "email": user_info["email"],
@@ -126,7 +120,6 @@ async def logout(request: Request):
 
 
 # --- App routes ---
-
 @app.get("/")
 async def root(request: Request):
     """Serve the main dashboard, or redirect to login if not authenticated."""
@@ -142,7 +135,6 @@ async def health_check():
 
 
 # --- Monitor Agent endpoints ---
-
 @app.get("/api/monitor")
 async def monitor(user: dict = Depends(get_current_user)):
     """Run the monitor agent to fetch current market data."""
@@ -187,7 +179,6 @@ async def price_history(coin_id: str, days: int = 7, user: dict = Depends(get_cu
 
 
 # --- Analysis Agent endpoint ---
-
 @app.get("/api/analyze")
 async def analyze(user: dict = Depends(get_current_user)):
     """Run monitor and analysis agents."""
@@ -203,7 +194,6 @@ async def analyze(user: dict = Depends(get_current_user)):
 
 
 # --- Advisory Agent endpoint ---
-
 @app.get("/api/recommend")
 async def recommend(user: dict = Depends(get_current_user)):
     """Run all agents and get trade recommendations."""
@@ -223,7 +213,6 @@ async def recommend(user: dict = Depends(get_current_user)):
 
 
 # --- Paper Trading endpoints ---
-
 @app.get("/api/portfolio")
 async def get_portfolio(user: dict = Depends(get_current_user)):
     """Get current paper trading portfolio."""
@@ -286,7 +275,6 @@ async def execute_recommendations(user: dict = Depends(get_current_user)):
         )
         # Also update existing positions
         closed_positions = paper_trading.update_positions(user["id"], current_prices)
-
         return {
             "monitor": monitor_data,
             "analysis": analysis,
