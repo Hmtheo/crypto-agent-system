@@ -2,6 +2,7 @@
 Crypto Agent System - Main FastAPI Application
 """
 import os
+import asyncio
 from fastapi import FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
@@ -19,17 +20,23 @@ from agents.advisory import get_recommendations
 import paper_trading
 from database import init_db
 
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
 app = FastAPI(title="Crypto Agent System", version="1.0.0")
 
 
 @app.on_event("startup")
 async def startup_event():
-    """Initialize database tables on startup"""
-    init_db()
+    """Initialize database tables on startup without blocking the event loop"""
+    loop = asyncio.get_event_loop()
+    try:
+        await loop.run_in_executor(None, init_db)
+    except Exception as e:
+        print(f"WARNING: Database initialization failed: {e}")
 
 
 # Serve static files
-app.mount("/static", StaticFiles(directory="static"), name="static")
+app.mount("/static", StaticFiles(directory=os.path.join(BASE_DIR, "static")), name="static")
 
 
 # Request models
@@ -44,10 +51,20 @@ class ClosePositionRequest(BaseModel):
 
 # Routes
 
+@app.get("/favicon.ico", include_in_schema=False)
+async def favicon():
+    """Serve favicon if present, otherwise return 204 No Content"""
+    favicon_path = os.path.join(BASE_DIR, "static", "favicon.ico")
+    if os.path.exists(favicon_path):
+        return FileResponse(favicon_path)
+    from fastapi.responses import Response
+    return Response(status_code=204)
+
+
 @app.get("/")
 async def root():
     """Serve the main dashboard"""
-    return FileResponse("static/index.html")
+    return FileResponse(os.path.join(BASE_DIR, "static", "index.html"))
 
 
 @app.get("/api/health")
