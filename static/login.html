@@ -3,83 +3,145 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Crypto Agent System — Sign In</title>
+    <title>Crypto Agent — Sign In</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
+        :root {
+            --bg-app: #f6f5f2;
+            --bg-card: #ffffff;
+            --bg-surface: #f0efe9;
+            --bg-hover: #eae9e3;
+            --text-primary: #1a1a1a;
+            --text-secondary: #6b6b6b;
+            --text-tertiary: #9a9a9a;
+            --border: rgba(0, 0, 0, 0.08);
+            --border-hover: rgba(0, 0, 0, 0.15);
+            --amber: #a16207;
+            --amber-bg: #fef3d6;
+            --radius-md: 10px;
+            --radius-lg: 14px;
         }
-
+        @media (prefers-color-scheme: dark) {
+            :root {
+                --bg-app: #111110;
+                --bg-card: #1c1c1a;
+                --bg-surface: #242422;
+                --bg-hover: #2e2e2b;
+                --text-primary: #e8e8e4;
+                --text-secondary: #9a9a94;
+                --text-tertiary: #6b6b65;
+                --border: rgba(255, 255, 255, 0.07);
+                --border-hover: rgba(255, 255, 255, 0.14);
+                --amber: #fbbf24;
+                --amber-bg: rgba(251, 191, 36, 0.12);
+            }
+        }
+        *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
-            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
-            color: #fff;
+            font-family: 'DM Sans', system-ui, sans-serif;
+            background: var(--bg-app);
+            color: var(--text-primary);
             min-height: 100vh;
             display: flex;
             align-items: center;
             justify-content: center;
+            -webkit-font-smoothing: antialiased;
         }
-
         .login-card {
-            background: rgba(0, 0, 0, 0.35);
-            border: 1px solid rgba(0, 212, 255, 0.2);
-            border-radius: 16px;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-lg);
             padding: 48px 40px;
             text-align: center;
-            max-width: 400px;
+            max-width: 380px;
             width: 90%;
+            animation: fadeUp 0.4s ease;
         }
-
+        @keyframes fadeUp {
+            from { opacity: 0; transform: translateY(12px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .logo-mark {
+            width: 48px;
+            height: 48px;
+            border-radius: var(--radius-md);
+            background: var(--text-primary);
+            color: var(--bg-app);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 20px;
+        }
         h1 {
-            font-size: 2rem;
-            color: #ff69b4;
-            margin-bottom: 8px;
+            font-size: 22px;
+            font-weight: 500;
+            letter-spacing: -0.02em;
+            margin-bottom: 4px;
         }
-
         .subtitle {
-            color: #888;
-            font-size: 1rem;
-            margin-bottom: 40px;
+            color: var(--text-secondary);
+            font-size: 14px;
+            margin-bottom: 32px;
         }
-
         .google-btn {
             display: inline-flex;
             align-items: center;
-            gap: 12px;
-            background: #fff;
-            color: #333;
-            border: none;
-            border-radius: 8px;
-            padding: 12px 24px;
-            font-size: 1rem;
+            gap: 10px;
+            background: var(--bg-card);
+            color: var(--text-primary);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
+            padding: 11px 24px;
+            font-size: 14px;
             font-weight: 500;
+            font-family: 'DM Sans', system-ui, sans-serif;
             cursor: pointer;
             text-decoration: none;
-            transition: box-shadow 0.2s;
+            transition: background 0.15s, border-color 0.15s;
         }
-
         .google-btn:hover {
-            box-shadow: 0 4px 16px rgba(255, 255, 255, 0.15);
+            background: var(--bg-hover);
+            border-color: var(--border-hover);
         }
-
-        .google-icon {
-            width: 20px;
-            height: 20px;
-        }
-
-        .disclaimer {
+        .google-btn:active { transform: scale(0.98); }
+        .google-icon { width: 18px; height: 18px; }
+        .divider {
             margin-top: 28px;
-            color: #555;
-            font-size: 0.8rem;
+            padding-top: 20px;
+            border-top: 1px solid var(--border);
+        }
+        .disclaimer {
+            color: var(--text-tertiary);
+            font-size: 12px;
+        }
+        .paper-badge {
+            display: inline-block;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 10px;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            padding: 2px 8px;
+            border-radius: 6px;
+            background: var(--amber-bg);
+            color: var(--amber);
+            font-weight: 500;
+            vertical-align: middle;
+            margin-left: 6px;
         }
     </style>
 </head>
 <body>
     <div class="login-card">
-        <h1>Crypto Agent</h1>
+        <div class="logo-mark">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/>
+                <polyline points="16 7 22 7 22 13"/>
+            </svg>
+        </div>
+        <h1>Crypto Agent <span class="paper-badge">paper</span></h1>
         <p class="subtitle">AI-powered paper trading dashboard</p>
-
         <a href="/auth/google" class="google-btn">
             <svg class="google-icon" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
                 <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
@@ -89,8 +151,9 @@
             </svg>
             Sign in with Google
         </a>
-
-        <p class="disclaimer">Paper trading only — no real money involved.</p>
+        <div class="divider">
+            <p class="disclaimer">Paper trading only — no real funds at risk</p>
+        </div>
     </div>
 </body>
 </html>
